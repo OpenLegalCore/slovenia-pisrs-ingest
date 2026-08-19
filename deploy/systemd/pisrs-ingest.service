@@ -1,0 +1,26 @@
+[Unit]
+Description=PISRS legislation ingestion
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/pisrs-ingest.env
+
+[Service]
+Type=oneshot
+User=pisrs-ingest
+Group=pisrs-ingest
+WorkingDirectory=/opt/pisrs-ingest/current
+EnvironmentFile=/etc/pisrs-ingest.env
+StateDirectory=pisrs-ingest
+StateDirectoryMode=0700
+RuntimeDirectory=pisrs-ingest
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/bin/env PISRS_ALLOW_EXTERNAL_API=0 PISRS_ALLOW_WRITES=0 /opt/pisrs-ingest/current/.venv/bin/pisrs-ingest preflight
+ExecStart=/usr/bin/env PISRS_ALLOW_EXTERNAL_API=1 PISRS_ALLOW_WRITES=1 /opt/pisrs-ingest/current/.venv/bin/pisrs-ingest nightly
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pisrs-ingest /run/pisrs-ingest
+TimeoutStartSec=4h
+Restart=no

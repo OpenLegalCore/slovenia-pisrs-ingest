@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly PISRS legislation ingestion schedule
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Europe/Ljubljana
+Persistent=true
+RandomizedDelaySec=0
+Unit=pisrs-ingest.service
+
+[Install]
+WantedBy=timers.target
