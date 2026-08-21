@@ -77,7 +77,7 @@ The wider Slovenian component map is maintained in the
 
 - Package and release candidate: **v0.1.0**.
 - Engineering status: **production-verified**.
-- Publication status: **private until separately authorized**.
+- Publication status: **public source-available release since 21 August 2026**.
 - License status: **source-available under BUSL-1.1 before the applicable Change Date**.
 
 The complete pipeline passed controlled production acceptance on 19 August 2026. The accepted
