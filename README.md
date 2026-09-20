@@ -9,6 +9,13 @@ the derived `pisrs_current` collection in Qdrant.
 It is a focused ingestion and integrity-maintenance utility. It is not a search product, a
 chatbot, a legal-analysis engine, or a user interface.
 
+| Public record | Current value |
+| --- | --- |
+| Component status | Public, production-verified, source-available |
+| Current release | [v0.1.0](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/tree/v0.1.0) |
+| Licence | [BUSL-1.1](LICENSE) before the applicable Change Date |
+| Project component record | [Slovenian Legislation Pipeline](https://openlegalcore.org/components/slovenian-legislation/) |
+
 > [!IMPORTANT]
 > This is an independent project. It is not an official PISRS project and is not affiliated
 > with, endorsed by, or operated by the Republic of Slovenia or any Slovenian public authority.
@@ -70,8 +77,9 @@ It deliberately does **not** provide:
 - legal advice, interpretation, or citation validation; or
 - automatic deletion of unexpected Qdrant points or payload keys.
 
-The wider Slovenian component map is maintained in the
-[`OpenLegalCore/slovenia`](https://github.com/OpenLegalCore/slovenia) architecture hub.
+The wider system map and the boundary between public, private and planned
+components are maintained in the
+[OpenLegalCore component register](https://openlegalcore.org/components/).
 
 ## Current status
 
@@ -493,7 +501,7 @@ endpoints, database dumps, or full operational logs in a GitHub issue.
 - Keep write flags at `0` except for a specifically approved mutating invocation.
 - Back up authoritative state and test restoration before relying on unattended operation.
 - Review PISRS access terms and downstream legal/data obligations independently of this software.
-- Report suspected vulnerabilities privately through an established OpenLegalCore contact channel;
+- Report suspected vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md);
   do not publish sensitive details before coordinated contact is confirmed.
 
 ## License

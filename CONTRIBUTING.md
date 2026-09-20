@@ -13,4 +13,7 @@ copyright and does not guarantee that a contribution will be accepted. Do not in
 secrets, private PISRS credentials, personal data, or third-party material that you are
 not entitled to disclose.
 
+Report suspected vulnerabilities through the private process in
+[`SECURITY.md`](SECURITY.md), never through a public issue.
+
 For commercial licensing inquiries, contact sales@openlegalcore.org.
