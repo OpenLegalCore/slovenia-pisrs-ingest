@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from bs4 import BeautifulSoup
+from bs4.element import NavigableString, Tag
 
 ARTICLE_RE = re.compile(r"^\s*(\d+[a-zA-Z]?)\.\s*člen\s*$", re.IGNORECASE)
 QUOTED_ARTICLE_RE = re.compile(r"^\s*[»\"“„']\s*(\d+[a-zA-Z]?)\.\s*člen", re.IGNORECASE)
@@ -366,6 +368,33 @@ def _block_type(classes: tuple[str, ...], text: str) -> str:
     return "text" if text else "unknown"
 
 
+BLOCK_TAGS = frozenset({"p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6"})
+
+
+def _block_segments(root: Tag) -> Iterator[tuple[Tag, str]]:
+    """Yield each visible text fragment once, in order, even inside nested divs."""
+
+    def walk(node: Tag, owner: Tag) -> Iterator[tuple[Tag, str]]:
+        fragments: list[str] = []
+        for child in node.children:
+            if isinstance(child, NavigableString):
+                fragments.append(str(child))
+            elif isinstance(child, Tag):
+                if child.name in BLOCK_TAGS or child.find(list(BLOCK_TAGS)):
+                    text = normalize_text(" ".join(fragments))
+                    if text:
+                        yield owner, text
+                    fragments = []
+                    yield from walk(child, child if child.name in BLOCK_TAGS else owner)
+                else:
+                    fragments.append(child.get_text(" "))
+        text = normalize_text(" ".join(fragments))
+        if text:
+            yield owner, text
+
+    yield from walk(root, root)
+
+
 def parse_html(html: str) -> ParsedText:
     if not html.strip():
         raise SourceInvariantError("PISRS text response is empty")
@@ -374,12 +403,7 @@ def parse_html(html: str) -> ParsedText:
     title = normalize_text(title_node.get_text(" ")) if title_node else None
     main = soup.select_one(".mainText") or soup.find("body") or soup
     blocks: list[Block] = []
-    for element in main.find_all(
-        ["p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6"], recursive=True
-    ):
-        text = normalize_text(element.get_text(" "))
-        if not text:
-            continue
+    for element, text in _block_segments(main):
         raw_classes = element.get("class") or []
         classes = tuple(raw_classes.split() if isinstance(raw_classes, str) else raw_classes)
         block_type = _block_type(classes, text)
