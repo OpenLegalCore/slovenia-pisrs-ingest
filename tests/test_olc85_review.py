@@ -35,6 +35,10 @@ class RecordingQdrant(FakeQdrant):
         self.writes.append((point_id, copy.deepcopy(patch)))
         super().set_payload(point_id, patch)
 
+    def overwrite_payload(self, point_id, payload):
+        self.writes.append((point_id, {"act_id": payload["act_id"]}))
+        super().overwrite_payload(point_id, payload)
+
     def upsert(self, *args):
         pytest.fail("manifest maintenance must never send vectors")
 
@@ -138,6 +142,7 @@ def setup(tmp_path, monkeypatch):
         readback_pg=readback,
         allow_writes=True,
         allow_external_api=False,
+        expected_vector_fingerprint=q.vector_fingerprint(),
     )
     return SimpleNamespace(
         args=arguments,

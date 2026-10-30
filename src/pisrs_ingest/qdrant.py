@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -197,3 +200,71 @@ class QdrantStore:
             timeout=(5, 60),
             phase="qdrant_payload_update",
         )
+
+    def overwrite_payload(self, point_id: str, payload: dict[str, Any]) -> None:
+        """Native full replacement; maintenance callers must pin ID and full image."""
+        if set(payload) != MANAGED_PAYLOAD_KEYS:
+            raise QdrantInvariantError("replacement must have the complete canonical key set")
+        self.http.request(
+            "PUT",
+            f"{self.base_url}/collections/{self.collection}/points/payload",
+            params={"wait": "true"},
+            json={"payload": payload, "points": [point_id]},
+            timeout=(5, 60),
+            phase="qdrant_manifest_payload_restore",
+        )
+
+    @staticmethod
+    def _vector_hash(vector: Any) -> str:
+        if (
+            not isinstance(vector, list)
+            or len(vector) != EMBEDDING_DIMENSIONS
+            or any(type(x) not in (int, float) or not math.isfinite(x) for x in vector)
+        ):
+            raise QdrantInvariantError("missing or invalid vector in strict readback")
+        return hashlib.sha256(
+            json.dumps(vector, separators=(",", ":"), allow_nan=False).encode()
+        ).hexdigest()
+
+    def point_vector_fingerprint(self, point_id: str) -> str:
+        response = self.http.request(
+            "GET",
+            f"{self.base_url}/collections/{self.collection}/points/{point_id}",
+            params={"with_payload": "false", "with_vector": "true"},
+            timeout=(5, 30),
+            phase="qdrant_manifest_vector_readback",
+        ).json()["result"]
+        if str(response.get("id")) != point_id:
+            raise QdrantInvariantError("vector response point identity changed")
+        return self._vector_hash(response.get("vector"))
+
+    def vector_fingerprint(self) -> str:
+        """Complete bounded vector readback; only per-point hashes stay in memory."""
+        leaves = {}
+        offset = None
+        seen = set()
+        while True:
+            body = {"limit": 100, "with_payload": False, "with_vector": True}
+            if offset is not None:
+                body["offset"] = offset
+            result = self.http.request(
+                "POST",
+                f"{self.base_url}/collections/{self.collection}/points/scroll",
+                json=body,
+                timeout=(5, 60),
+                phase="qdrant_manifest_vector_baseline",
+            ).json()["result"]
+            for point in result["points"]:
+                point_id = str(point["id"])
+                if point_id in leaves:
+                    raise QdrantInvariantError("duplicate vector point")
+                leaves[point_id] = self._vector_hash(point.get("vector"))
+            offset = result["next_page_offset"]
+            if offset is None:
+                break
+            if repr(offset) in seen or not result["points"]:
+                raise QdrantInvariantError("vector scroll pagination cycle")
+            seen.add(repr(offset))
+        return hashlib.sha256(
+            json.dumps(sorted(leaves.items()), separators=(",", ":")).encode()
+        ).hexdigest()

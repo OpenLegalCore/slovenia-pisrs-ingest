@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
+import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -191,6 +193,16 @@ class FakeQdrant:
     def set_payload(self, point_id: str, patch: dict[str, object]) -> None:
         self.payload_calls += 1
         self.points[point_id].update(patch)
+
+    def overwrite_payload(self, point_id: str, payload: dict[str, object]) -> None:
+        self.payload_calls += 1
+        self.points[point_id] = dict(payload)
+
+    def point_vector_fingerprint(self, point_id: str) -> str:
+        return hashlib.sha256(point_id.encode()).hexdigest()
+
+    def vector_fingerprint(self) -> str:
+        return hashlib.sha256(json.dumps(sorted(self.points)).encode()).hexdigest()
 
     def retrieve_points(self, point_ids: list[str]) -> dict[str, PointState]:
         return {

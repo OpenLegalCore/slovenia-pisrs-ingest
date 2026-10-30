@@ -101,9 +101,17 @@ missing/orphan/unsafe point. The approved version map is passed to
 stops that transaction before writing. Cache repair uses only approved explicit
 PK batches. PG cache-only updates do not change canonical Qdrant payloads.
 
-The maintenance module has only one Qdrant writer, with literal
-`set_payload(approved_point_id, {"act_id": approved_target})`. It does not call
-broad apply, vector upsert, deletion, embedding or an apply subprocess. Re-read
+Forward maintenance uses only literal
+`set_payload(approved_point_id, {"act_id": approved_target})`. Qdrant 1.17.1 treats
+merge `act_id: null` as key deletion, so inverse maintenance uses native
+`overwrite_payload(approved_point_id, exact_approved_before_payload)`. Both require
+the same exact manifest identity and before/after image validation. Missing keys
+are never treated as null. An inverse call requires the approved complete vector
+fingerprint, reads the target vector before/after each replacement and performs a
+complete bounded vector fingerprint readback. Every other key must remain exact. The owner and payload are rechecked after the
+vector read immediately before replacement. Qdrant offers no atomic payload CAS;
+exclusive exclusion of other writers is still required, including external clients.
+It does not call broad apply, vector upsert, deletion, embedding or an apply subprocess. Re-read
 each point immediately before writing and after writing; perform full collection
 readback before PG acknowledgement and again afterwards. Unexpected pre-existing
 changes stop before writes. A failure or change arising during apply stops the
@@ -188,3 +196,47 @@ It still validates checkpoint paths, existing paths/permissions, schema, databas
 collection and vector contract. It does not establish readiness to run nightly.
 Existing inaccessible paths and non-directory paths still fail. Default strict
 behavior and the two authorization flags are not relaxed. No unit edit is needed.
+
+
+## Concrete private PostgreSQL images and callbacks
+
+`postgres_maintenance.capture_pg_images` performs read-only capture under the
+existing MaintenanceOwner and executable exclusion guard. Its caller supplies
+explicit extra cache PKs and an explicit total row budget. All children of the
+approved version IDs are enumerated before review; no child may be omitted. Each
+private JSON file contains at most 1000 explicit PKs with complete semantic
+before/staged/acknowledged images. They are derived from the shared canonical
+payload map, retaining provenance and every source/identity column. The sole
+excluded column is trigger-owned `updated_at`, which legitimately advances.
+Metadata acknowledgement preserves the original vector upsert timestamp.
+
+The private parent and image directories must be owned mode 0700; regular files
+must be owned mode 0600 with one link and no symlinks. Files and directories are
+fsynced and the complete index is atomically published before any data UPDATE.
+The returned SHA is evidence for separate operator review, never implicit approval.
+The index binds the exact manifest SHA, database name, vector baseline, topology,
+PK lists and every batch hash. Interrupted capture has no published index and
+cannot authorize data writes. A new capture refuses already-linked parent versions.
+
+After review, construct `PgMaintenanceCallbacks(database, directory,
+approved_index_sha256, manifest)` and pass its `prepare_pg`, `acknowledge_pg` and
+`readback_pg` methods to `run_manifest_repair`, together with
+`expected_vector_fingerprint=callbacks.vector_fingerprint`. No second locking CLI
+or generic reconcile apply is involved; there is no new production apply CLI.
+
+Before any data UPDATE the callbacks validate the private hashes, full parent/
+child topology, unique SOP identity and all current row images. Each transaction
+locks at most 1000 explicit rows and uses a full JSON semantic before-image CAS;
+returned after-images must equal the approved target. Unique act identity is
+checked again while the act table lock is held. Pre-existing drift stops before
+any UPDATE. Late concurrent drift aborts its transaction and stops the operation;
+previous committed batches remain recoverable. Do not run without start exclusion.
+
+Progress is represented by the actual row image, not a mutable checkpoint or an
+in-memory list. A new process accepts only exact approved before, staged or
+acknowledged states. Completed forward replay never recreates payload_pending;
+inverse restores exact semantic before-images including status/error/cache.
+Every batch and final readback is checked under the same live owner. Full images
+and vector scans consume storage/read bandwidth; production capacity, permissions,
+reviewed manifests and exclusion remain separate operational gates. Keep all
+private images outside the repository and out of packages/PR attachments.

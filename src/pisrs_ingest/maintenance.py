@@ -399,6 +399,7 @@ def run_manifest_repair(
     direction: str = "forward",
     allow_writes: bool = False,
     allow_external_api: bool = False,
+    expected_vector_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     """Single process, single lock; callbacks never invoke a locking CLI.
 
@@ -415,9 +416,20 @@ def run_manifest_repair(
         raise MaintenanceError("maintenance collection differs from the approved manifest")
     if direction not in ("forward", "rollback") or not isinstance(manifest, PinnedManifest):
         raise MaintenanceError("invalid repair direction or unapproved manifest")
+    if expected_vector_fingerprint is not None and not re.fullmatch(
+        r"[0-9a-f]{64}", expected_vector_fingerprint
+    ):
+        raise MaintenanceError("invalid approved vector fingerprint")
+    if direction == "rollback" and expected_vector_fingerprint is None:
+        raise MaintenanceError("rollback requires an approved complete vector fingerprint")
     approved = {point.point_id: point for point in manifest.points}
     with MaintenanceOwner(lock_path, checkpoint_path, window) as owner:
         _verify_scope(owner, manifest, postgres, qdrant, direction, target_pg=False, target_q=False)
+        if (
+            expected_vector_fingerprint is not None
+            and qdrant.vector_fingerprint() != expected_vector_fingerprint
+        ):
+            raise MaintenanceError("Qdrant vectors differ from the approved baseline")
         owner.check()
         prepare_pg(owner, manifest, direction)
         pending = _verify_scope(
@@ -436,8 +448,21 @@ def run_manifest_repair(
             target = point.target(direction)
             if _json(current.payload) != _json(target):
                 owner.check()
-                # The only Qdrant writer in this module. No broad plan recomputation/apply.
-                qdrant.set_payload(point_id, {"act_id": target["act_id"]})
+                if direction == "rollback":
+                    # set_payload(null) deletes the key on Qdrant 1.17.1.
+                    # Full replacement is pinned to this exact approved before-image.
+                    vector_before = qdrant.point_vector_fingerprint(point_id)
+                    owner.check()
+                    latest = qdrant.get_point(point_id)
+                    if latest is None or latest.point_id != point_id:
+                        raise MaintenanceError("approved point identity changed before restore")
+                    _normal_payload(point, latest.payload)
+                    owner.check()
+                    qdrant.overwrite_payload(point_id, point.before())
+                    if qdrant.point_vector_fingerprint(point_id) != vector_before:
+                        raise MaintenanceError("approved point vector changed during restore")
+                else:
+                    qdrant.set_payload(point_id, {"act_id": target["act_id"]})
                 applied += 1
             readback = qdrant.get_point(point_id)
             if (
@@ -451,6 +476,11 @@ def run_manifest_repair(
         acknowledge_pg(owner, manifest, direction)
         readback_pg(owner, manifest, direction)
         _verify_scope(owner, manifest, postgres, qdrant, direction, target_pg=True, target_q=True)
+        if (
+            expected_vector_fingerprint is not None
+            and qdrant.vector_fingerprint() != expected_vector_fingerprint
+        ):
+            raise MaintenanceError("Qdrant vectors changed during maintenance")
         owner.check()
     return {
         "manifest_sha256": manifest.approved_sha256,

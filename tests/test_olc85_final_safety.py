@@ -339,22 +339,28 @@ def test_complete_sibling_manifest_resumes_forward_and_inverse_without_scope_exp
             "before_payload": sibling.payload(),
         }
     )
-    args = {**s.args, "manifest": pin(raw), "qdrant": q}
-    original = q.set_payload
+    args = {
+        **s.args,
+        "manifest": pin(raw),
+        "qdrant": q,
+        "expected_vector_fingerprint": q.vector_fingerprint(),
+    }
     for direction in ("forward", "rollback"):
+        writer = "set_payload" if direction == "forward" else "overwrite_payload"
+        original = getattr(q, writer)
         calls = 0
 
-        def fail_second(point_id, patch):
+        def fail_second(point_id, patch, original=original):
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise RuntimeError("fixture interrupted")
             original(point_id, patch)
 
-        q.set_payload = fail_second
+        setattr(q, writer, fail_second)
         with pytest.raises(RuntimeError, match="fixture interrupted"):
             run_manifest_repair(**args, direction=direction)
-        q.set_payload = original
+        setattr(q, writer, original)
         assert run_manifest_repair(**args, direction=direction)["payloads_applied"] == 2
         assert run_manifest_repair(**args, direction=direction)["payloads_applied"] == 0
     assert q.points == q_before and s.pg.rows == all_rows
