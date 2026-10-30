@@ -296,6 +296,35 @@ def test_chunking_is_deterministic() -> None:
     assert make_chunks(parsed.blocks)[0].chunk_text == "[1. člen] 1. člen [paragraph] A B"
 
 
+def test_nested_html_wrappers_do_not_duplicate_legal_text() -> None:
+    parsed = parse_html(
+        "<html><body><div class='mainText'><div class='wrapper'>Uvod "
+        "<p class='clen'>1. člen</p>"
+        "<p class='odstavek'>Vsebina <strong>člena</strong> velja</p>"
+        " Zaključek</div></div></body></html>"
+    )
+    assert [block.text for block in parsed.blocks] == [
+        "Uvod",
+        "1. člen",
+        "Vsebina člena velja",
+        "Zaključek",
+    ]
+    assert parsed.plain_text == "Uvod\\n1. člen\\nVsebina člena velja\\nZaključek"
+
+
+def test_nested_html_keeps_leaf_block_classes_and_article_heading() -> None:
+    parsed = parse_html(
+        "<html><body><div class='mainText'><div>"
+        "<p class='clen'>2. člen</p><p class='odstavek'>Pravilo</p>"
+        "</div></div></body></html>"
+    )
+    assert [(block.block_type, block.text) for block in parsed.blocks] == [
+        ("article_heading", "2. člen"),
+        ("paragraph", "Pravilo"),
+    ]
+    assert [article.article_no for article in parsed.articles] == ["2"]
+
+
 def test_unknown_version_label_fails_closed() -> None:
     assert version_rank("osnovno") == 0
     assert version_rank("npb02") == 2
