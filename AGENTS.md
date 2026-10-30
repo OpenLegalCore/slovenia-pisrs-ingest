@@ -3,9 +3,10 @@
 **Scope:** only `OpenLegalCore/slovenia-pisrs-ingest`. Do not apply these rules to
 the separate case-law repository or to other OpenLegalCore products.
 
-**HOLD:** the owner has suspended product development. Only explicitly authorized
-documentation work is permitted until the owner resumes development. Do not
-mistake an open issue or a green build for permission to run operations.
+**Development resumed:** the owner authorized continuation on 30 October 2026.
+Proceed with the smallest concrete PISRS work item under this contract. This
+authorization does **not** permit production writes, deployment, paid calls,
+checkpoint/service changes or Git merges without their specific approval.
 
 ## Product and authority
 
@@ -16,7 +17,7 @@ actually keep them synchronized. A patch, PR, test, release or package is not
 the delivered product.
 
 - [Linear product contract](https://linear.app/openlegalcore/document/pisrs-projektna-pogodba-source-to-index-completeness-9d8c57fb5c81):
-  scope, acceptance criteria and current HOLD.
+  product scope and acceptance criteria.
 - [Linear project](https://linear.app/openlegalcore/project/pisrs-complete-source-to-index-synchronization-b47e7deb7c78):
   the **only backlog** and place for measurements, history and decisions.
 - This GitHub repository: code, PRs, CI and releases.
