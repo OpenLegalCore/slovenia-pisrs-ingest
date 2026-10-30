@@ -309,7 +309,7 @@ def test_nested_html_wrappers_do_not_duplicate_legal_text() -> None:
         "Vsebina člena velja",
         "Zaključek",
     ]
-    assert parsed.plain_text == "Uvod\\n1. člen\\nVsebina člena velja\\nZaključek"
+    assert parsed.plain_text == "Uvod\n1. člen\nVsebina člena velja\nZaključek"
 
 
 def test_nested_html_keeps_leaf_block_classes_and_article_heading() -> None:
