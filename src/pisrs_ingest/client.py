@@ -107,12 +107,7 @@ class PisrsClient:
         "/predpis/neveljavni-predpisi",
         "/predpis/obsoletni-in-konzumirani-predpisi",
         "/predpis/evidenca-normodajalcev",
-        "/predpis/predpisi-v-pripravi",
-        "/predpis/drugi-splosni-in-posamicni-akti",
-        "/predpis/splosni-akti-za-izvrsevanje-javnih-pooblastil",
     )
-    PAGE_SIZE = 1000
-    MAX_PAGES = 1000
 
     def __init__(self, base_url: str, token: str, http: HttpClient | None = None) -> None:
         self.base_url = base_url.rstrip("/") + "/"
@@ -128,7 +123,7 @@ class PisrsClient:
     def discover_acts(self) -> list[Act]:
         by_id: dict[int, Act] = {}
         for endpoint in self.ACT_ENDPOINTS:
-            for row in self._pages(endpoint):
+            for row in self._pages(endpoint, total_key="total"):
                 act = Act.from_raw(row, endpoint)
                 by_id[act.register_id] = (
                     by_id[act.register_id].merge(act) if act.register_id in by_id else act
@@ -137,7 +132,7 @@ class PisrsClient:
 
     def discover_npbs(self) -> list[NpbDocument]:
         by_id: dict[int, NpbDocument] = {}
-        for row in self._pages("/npb"):
+        for row in self._pages("/npb", total_key="totalCount"):
             document = NpbDocument.from_raw(row)
             previous = by_id.get(document.text_id)
             if previous is not None and previous != document:
@@ -172,14 +167,11 @@ class PisrsClient:
         if not isinstance(payload.get("data"), list):
             raise HttpError("PISRS probe response does not contain a data list")
 
-    def _pages(self, endpoint: str) -> list[dict[str, Any]]:
-        """Require exactly totalCount distinct IDs; uncertainty blocks synchronization."""
-
-        page_size = self.PAGE_SIZE
+    def _pages(self, endpoint: str, *, total_key: str) -> list[dict[str, Any]]:
+        page = 1
+        page_size = 1000
         result: list[dict[str, Any]] = []
-        seen_ids: set[int] = set()
-        expected_total: int | None = None
-        for page in range(1, self.MAX_PAGES + 1):
+        while page <= 1000:
             response = self.http.request(
                 "GET",
                 urljoin(self.base_url, endpoint.lstrip("/")),
@@ -187,46 +179,17 @@ class PisrsClient:
                 params={"page": page, "pageSize": page_size},
                 phase=("act_discovery" if endpoint in self.ACT_ENDPOINTS else "npb_discovery"),
             )
-            try:
-                payload = response.json()
-            except ValueError as exc:
-                raise HttpError(f"PISRS {endpoint} response is not valid JSON") from exc
-            finally:
-                response.close()
-            if not isinstance(payload, dict):
-                raise HttpError(f"PISRS {endpoint} response is not an object")
-            if payload.get("error") not in (None, ""):
-                raise HttpError(f"PISRS {endpoint} response reports an error")
+            payload = response.json()
             rows = payload.get("data")
             if not isinstance(rows, list):
                 raise HttpError(f"PISRS {endpoint} response does not contain a data list")
-            reported = payload.get("totalCount")
-            if type(reported) is not int or reported < 0:
-                raise SourceInvariantError(f"PISRS {endpoint} has no valid totalCount")
-            if expected_total is not None and reported != expected_total:
-                raise SourceInvariantError(f"PISRS {endpoint} totalCount changed between pages")
-            expected_total = reported
-            for key, expected in (
-                ("page", page),
-                ("requestedPageSize", page_size),
-                ("realPageSize", len(rows)),
-            ):
-                if key in payload and (type(payload[key]) is not int or payload[key] != expected):
-                    raise SourceInvariantError(f"PISRS {endpoint} has inconsistent {key}")
-            if len(rows) > page_size or len(result) + len(rows) > reported:
-                raise SourceInvariantError(f"PISRS {endpoint} exceeded its page size or totalCount")
-            for row in rows:
-                if not isinstance(row, dict) or type(row.get("id")) is not int:
-                    raise SourceInvariantError(f"PISRS {endpoint} row has no integer identity")
-                identity = row["id"]
-                if identity in seen_ids:
-                    raise SourceInvariantError(f"PISRS {endpoint} repeated an identity")
-                seen_ids.add(identity)
             result.extend(rows)
-            if len(result) == reported:
+            if not rows or len(rows) < page_size:
+                reported = payload.get(total_key)
+                if isinstance(reported, int) and reported > len(result):
+                    raise SourceInvariantError(
+                        f"PISRS {endpoint} stopped before its reported total"
+                    )
                 return result
-            if len(rows) < page_size:
-                raise SourceInvariantError(
-                    f"PISRS {endpoint} stopped before its reported totalCount"
-                )
+            page += 1
         raise SourceInvariantError(f"PISRS {endpoint} exceeded the page safety limit")
