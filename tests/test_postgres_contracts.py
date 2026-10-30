@@ -71,6 +71,7 @@ class FaithfulCursor:
     def __init__(self) -> None:
         self.batch_calls: list[tuple[str, list[dict[str, Any]]]] = []
         self.execute_calls: list[str] = []
+        self.rowcount = 0
 
     def __enter__(self) -> FaithfulCursor:
         return self
@@ -137,7 +138,16 @@ class RoutingCursor(FaithfulCursor):
         normalized = " ".join(sql.split())
         if self.mode == "document":
             if "SELECT catalog.id AS npb_catalog_id" in normalized:
-                return Result([{"npb_catalog_id": 7, "existing_act_id": None}])
+                return Result(
+                    [
+                        {
+                            "npb_catalog_id": 7,
+                            "existing_version_id": None,
+                            "existing_act_id": None,
+                            "existing_raw_meta": None,
+                        }
+                    ]
+                )
             return Result()
         if "FROM pisrs.act_text_versions" in normalized and "FOR UPDATE" in normalized:
             return Result(

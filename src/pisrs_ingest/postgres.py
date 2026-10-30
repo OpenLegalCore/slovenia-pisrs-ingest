@@ -385,7 +385,14 @@ class PostgresBoundary:
 
 
 class CatalogStore:
-    """Persist complete act/NPB catalogs and synchronize proven status semantics."""
+    """Persist catalogs; act status describes legacy laws presence, not NPB coverage.
+
+    ``imported`` is a legacy workflow assertion (also promoted on a matching
+    ``pisrs.laws`` record), retained on later catalog refreshes. ``pending``
+    is not proof that an NPB version is missing. Source exclusions/failures are
+    retained. NPB import completeness comes from npb_catalog + act_text_versions,
+    and vector completeness from embedding_chunks + Qdrant, independently.
+    """
 
     def __init__(self, database: PostgresDatabase) -> None:
         self.database = database

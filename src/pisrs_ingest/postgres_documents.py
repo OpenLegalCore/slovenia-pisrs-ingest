@@ -85,7 +85,9 @@ class DocumentStore:
             identity = cursor.execute(
                 """
                     SELECT catalog.id AS npb_catalog_id,
-                           version.act_id AS existing_act_id
+                           version.id AS existing_version_id,
+                           version.act_id AS existing_act_id,
+                           version.raw_meta AS existing_raw_meta
                     FROM pisrs.npb_catalog AS catalog
                     LEFT JOIN pisrs.act_text_versions AS version
                       ON version.text_id = catalog.text_id
@@ -102,11 +104,24 @@ class DocumentStore:
                 "SELECT id FROM pisrs.acts WHERE sop = %s ORDER BY id",
                 (document.sop_from_docno,),
             ).fetchall()
-            act_id = resolve_act_id(
-                identity["existing_act_id"], candidates, document.sop_from_docno
+            # Eligibility is granted only on first local import by this code.
+            # A source refresh must never enroll a historical NULL link for repair.
+            automatic_link_repair = identity["existing_version_id"] is None or (
+                (identity["existing_raw_meta"] or {}).get("automatic_act_link_repair") is True
+            )
+            act_id = (
+                resolve_act_id(identity["existing_act_id"], candidates, document.sop_from_docno)
+                if automatic_link_repair or identity["existing_act_id"] is not None
+                else None
             )
             version_id = self._upsert_version(
-                cursor, document, parsed, source_url, identity["npb_catalog_id"], act_id
+                cursor,
+                document,
+                parsed,
+                source_url,
+                identity["npb_catalog_id"],
+                act_id,
+                automatic_link_repair,
             )
             cursor.executemany(
                 BLOCK_UPSERT,
@@ -150,11 +165,14 @@ class DocumentStore:
         source_url: str,
         npb_catalog_id: int,
         act_id: int | None,
+        automatic_link_repair: bool,
     ) -> int:
         raw_meta = {
             "npb_catalog": document.raw,
             "articles": [article_json(article) for article in parsed.articles],
         }
+        if automatic_link_repair:
+            raw_meta["automatic_act_link_repair"] = True
         row = cursor.execute(
             VERSION_UPSERT,
             {

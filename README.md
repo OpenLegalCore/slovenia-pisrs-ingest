@@ -313,6 +313,14 @@ uv run pisrs-ingest preflight
 Preflight never calls the embedding provider and never writes PostgreSQL, Qdrant, or the
 checkpoint.
 
+For a standalone read-only check while a systemd oneshot is inactive, its lock
+RuntimeDirectory may be absent. Use `pisrs-ingest preflight --manual` with both
+authorization flags at `0` to defer only that missing lock parent. The result
+explicitly reports `runtime_ready: false`; it does not prove readiness to run
+nightly. It creates no paths or permissions. Default service preflight stays strict.
+See [the metadata integrity contract](docs/operations/olc85-integrity.md) for
+legacy status semantics and payload-only recovery.
+
 ## First controlled run
 
 Do not make the first mutation through an unattended timer.

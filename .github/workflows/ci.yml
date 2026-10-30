@@ -11,6 +11,19 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.3
+        env:
+          POSTGRES_DB: olc85_fixture
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres -d olc85_fixture"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -22,9 +35,23 @@ jobs:
           uv sync --locked --all-extras
       - name: Lint
         run: |
-          uv run ruff format --check .
-          uv run ruff check .
-      - name: Offline tests
-        run: uv run pytest
+          uv run --locked ruff format --check .
+          uv run --locked ruff check .
+      - name: Offline tests with PostgreSQL
+        env:
+          PISRS_OLC85_TEST_DSN: postgresql://postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/olc85_fixture
+        run: |
+          uv run --locked pytest --junitxml="$RUNNER_TEMP/pisrs-pytest-results.xml" -ra
+          uv run --locked python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = ET.parse(Path(os.environ["RUNNER_TEMP"]) / "pisrs-pytest-results.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert cases and not any(list(root.iter(tag)) for tag in ("failure", "error", "skipped"))
+          assert any("test_olc85_review_pg" in case.attrib["classname"] for case in cases)
+          print(f"Verified {len(cases)} executed tests, zero skips; PostgreSQL fixtures included")
+          PY
       - name: Build distributions
-        run: uv run python -m build --no-isolation
+        run: uv run --locked python -m build --no-isolation

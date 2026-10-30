@@ -49,6 +49,11 @@ class NightlyStats:
     vectors_reused: int = 0
     payloads_updated: int = 0
     inactive_points_missing: int = 0
+    act_links_repaired: int = 0
+    link_blocks_repaired: int = 0
+    link_chunks_repaired: int = 0
+    act_links_ambiguous: int = 0
+    act_links_unmatched: int = 0
 
 
 @dataclass(frozen=True)
@@ -152,12 +157,22 @@ def run_nightly(
             )
     stats.documents_failed = len(failures)
 
+    # Default scope is only versions enrolled on first import by the new code.
+    # Historical NULL links require separately approved manifest maintenance.
+    links = postgres.chunks.repair_act_links(max_documents)
+    stats.act_links_repaired = links.versions
+    stats.link_blocks_repaired = links.blocks
+    stats.link_chunks_repaired = links.chunks
+    stats.act_links_ambiguous = links.ambiguous
+    stats.act_links_unmatched = links.unmatched
+
     touched_sops = postgres.chunks.touched_sops(interval.start)
     stats.sops_touched = len(touched_sops)
     rollover_rows: list[VectorRow] = []
     for sop in touched_sops:
         rollover_rows.extend(postgres.chunks.prepare_rollover(sop, model, dimensions))
     rows = _final_rollover_rows(postgres.chunks, rollover_rows)
+    payload_only_ids = postgres.chunks.payload_pending_point_ids({row.point_id for row in rows})
 
     qdrant.validate_collection(dimensions, model)
     _ensure_vectors_and_payloads(
@@ -168,6 +183,7 @@ def run_nightly(
         embed_batch_size=embed_batch_size,
         max_embedding_input_bytes=max_embedding_input_bytes,
         stats=stats,
+        payload_only_point_ids=payload_only_ids,
     )
 
     if failures:
@@ -199,7 +215,19 @@ def _ensure_vectors_and_payloads(
     embed_batch_size: int,
     max_embedding_input_bytes: int,
     stats: NightlyStats,
+    payload_only_point_ids: set[str] | frozenset[str] = frozenset(),
 ) -> None:
+    # Validate the entire metadata-only subset before any embedding or Qdrant write.
+    # The persisted marker survives partial Qdrant failure and checkpoint boundaries.
+    metadata_states: dict[str, PointState] = {}
+    for row in rows:
+        if row.point_id not in payload_only_point_ids:
+            continue
+        state = qdrant.get_point(row.point_id)
+        if state is None or not _vector_contract_matches(row, state):
+            raise PipelineError("payload-only repair requires an existing matching vector")
+        payload_patch(row.payload(), state.payload)  # reject unexpected keys before writes
+        metadata_states[row.point_id] = state
     active_rows = [row for row in rows if row.is_active and row.is_latest_for_sop]
     planned_batches: list[tuple[list[tuple[VectorRow, PointState]], list[VectorRow]]] = []
     for start in range(0, len(active_rows), embed_batch_size):
@@ -207,7 +235,7 @@ def _ensure_vectors_and_payloads(
         reusable: list[tuple[VectorRow, PointState]] = []
         needs_embedding: list[VectorRow] = []
         for row in batch:
-            state = qdrant.get_point(row.point_id)
+            state = metadata_states.get(row.point_id) or qdrant.get_point(row.point_id)
             if state is not None and _vector_contract_matches(row, state):
                 reusable.append((row, state))
             else:
@@ -243,7 +271,7 @@ def _ensure_vectors_and_payloads(
     for row in rows:
         if row.is_active and row.is_latest_for_sop:
             continue
-        state = qdrant.get_point(row.point_id)
+        state = metadata_states.get(row.point_id) or qdrant.get_point(row.point_id)
         if state is None:
             stats.inactive_points_missing += 1
             continue
@@ -251,6 +279,8 @@ def _ensure_vectors_and_payloads(
         if patch:
             qdrant.set_payload(row.point_id, patch)
             stats.payloads_updated += 1
+        if row.point_id in payload_only_point_ids:
+            chunks.mark_uploaded([row])
 
 
 def _vector_contract_matches(row: VectorRow, state: PointState) -> bool:

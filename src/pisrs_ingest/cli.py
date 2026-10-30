@@ -35,7 +35,14 @@ EXIT_LOCK_BUSY = 75
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="pisrs-ingest")
     subcommands = result.add_subparsers(dest="command", required=True)
-    subcommands.add_parser("preflight", help="read-only configuration and service contract check")
+    preflight = subcommands.add_parser(
+        "preflight", help="read-only configuration and service contract check"
+    )
+    preflight.add_argument(
+        "--manual",
+        action="store_true",
+        help="check services while explicitly deferring an absent systemd lock directory",
+    )
     subcommands.add_parser("nightly", help="run one checkpointed ingest interval")
     reconcile = subcommands.add_parser("reconcile", help="compare or repair Qdrant payload only")
     mode = reconcile.add_mutually_exclusive_group(required=True)
@@ -50,7 +57,7 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
     try:
         settings = load_settings(config_command, environ)
         if args.command == "preflight":
-            return _preflight(settings)
+            return _preflight(settings, manual=True) if args.manual else _preflight(settings)
         if args.command == "nightly":
             require_external(settings)
             require_writes(settings)
@@ -75,12 +82,12 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
         return EXIT_ERROR
 
 
-def _preflight(settings: Settings) -> int:
+def _preflight(settings: Settings, *, manual: bool = False) -> int:
     assert settings.embedding_model is not None
     assert settings.embedding_dimensions is not None
     assert settings.checkpoint_path is not None
     assert settings.initial_since is not None
-    paths = validate_runtime_paths(settings)
+    paths = validate_runtime_paths(settings, allow_missing_lock_parent=manual)
     checkpoint = CheckpointStore(settings.checkpoint_path, settings.initial_since).validate()
     postgres = PostgresBoundary.create(settings.database_dsn, settings.collection)
     qdrant = QdrantStore(settings.qdrant_url, settings.collection)
@@ -107,6 +114,7 @@ def _preflight(settings: Settings) -> int:
                 },
                 "pisrs": portal,
                 "paths": paths,
+                "runtime_ready": all(state == "ok" for state in paths.values()),
                 "checkpoint": checkpoint,
                 "writes": 0,
                 "embedding_calls": 0,

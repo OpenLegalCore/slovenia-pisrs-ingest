@@ -231,18 +231,30 @@ def require_writes(settings: Settings) -> None:
         raise ConfigError("PISRS_ALLOW_WRITES=1 is required for this mutating command")
 
 
-def validate_runtime_paths(settings: Settings) -> dict[str, str]:
+def validate_runtime_paths(
+    settings: Settings, *, allow_missing_lock_parent: bool = False
+) -> dict[str, str]:
     """Read-only validation of directories/files needed by locking and checkpoint writes."""
 
     paths = {"lock": settings.lock_path}
     if settings.checkpoint_path is not None:
         paths["checkpoint"] = settings.checkpoint_path
+    result = {}
     for name, path in paths.items():
         parent = path.parent
         if not parent.is_dir():
+            if (
+                name == "lock"
+                and allow_missing_lock_parent
+                and not parent.exists()
+                and not parent.is_symlink()
+            ):
+                result[name] = "deferred_missing_parent"
+                continue
             raise ConfigError(f"{name} parent directory does not exist: {parent}")
         if not os.access(parent, os.W_OK | os.X_OK):
             raise ConfigError(f"{name} parent directory is not writable: {parent}")
         if path.exists() and (not path.is_file() or not os.access(path, os.R_OK)):
             raise ConfigError(f"{name} path is not a readable regular file: {path}")
-    return {name: "ok" for name in paths}
+        result[name] = "ok"
+    return result
