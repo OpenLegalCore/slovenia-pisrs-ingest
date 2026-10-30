@@ -1,80 +1,65 @@
-# AGENTS.md — PISRS ingest
+# Agent instructions — PISRS ingest
 
-These instructions apply to all work in **this repository only**:
-`OpenLegalCore/slovenia-pisrs-ingest`. They do not govern any other repository.
+**Scope:** only `OpenLegalCore/slovenia-pisrs-ingest`. Do not apply these rules to
+the separate case-law repository or to other OpenLegalCore products.
 
-## Current authorization: HOLD
+**HOLD:** the owner has suspended product development. Only explicitly authorized
+documentation work is permitted until the owner resumes development. Do not
+mistake an open issue or a green build for permission to run operations.
 
-The owner has paused product development. The present documentation consolidation is an
-explicit exception. Do not resume implementation, deployment, source collection, or
-production operations until the owner explicitly authorizes that activity. A green
-build, a prior approval for a different task, or a Linear status is not authorization.
+## Product and authority
 
-## One product, one objective
+Deliver **one small, reliable production PISRS ingester**, not a platform.
+Completion requires evidence that legally accessible sources and their history
+are represented in PostgreSQL, eligible text in Qdrant, and nightly updates
+actually keep them synchronized. A patch, PR, test, release or package is not
+the delivered product.
 
-Deliver and maintain a **small, reliable, understandable production PISRS ingestion
-program**, not a platform. The required result is legally accessible PISRS source
-catalogs and historical versions, their available text in PostgreSQL
-(`appdb`, schema `pisrs`), all eligible text vectors in Qdrant
-(`pisrs_current`), and verified ongoing nightly synchronization. For missing
-source text, preserve a reason rather than inventing content.
+- [Linear product contract](https://linear.app/openlegalcore/document/pisrs-projektna-pogodba-source-to-index-completeness-9d8c57fb5c81):
+  scope, acceptance criteria and current HOLD.
+- [Linear project](https://linear.app/openlegalcore/project/pisrs-complete-source-to-index-synchronization-b47e7deb7c78):
+  the **only backlog** and place for measurements, history and decisions.
+- This GitHub repository: code, PRs, CI and releases.
+- [Official PISRS API](https://pisrs.si/swagger/navodila): external source contract.
+- [README](README.md): operator and technical guidance;
+  [CONTRIBUTING](CONTRIBUTING.md): contributions and CLA;
+  [SECURITY](SECURITY.md): vulnerability reporting.
 
-Required source investigation includes the 13 documented PISRS API catalogs,
-available history, and the legitimately accessible Official Gazette. Case law,
-`lexai-engine`, Engine/LWS, their infrastructure, and unrelated systems are out
-of scope.
+Do not duplicate detailed technical contracts, dated counts, issue inventories,
+or release status in this file.
 
-## Sources of authority (do not duplicate them)
+## Execution: shortest path to working data
 
-- **Product scope, acceptance, and permissions:** [PISRS project contract](https://linear.app/openlegalcore/document/pisrs-projektna-pogodba-source-to-index-completeness-9d8c57fb5c81).
-- **Only backlog and historical evidence:** [Linear PISRS project](https://linear.app/openlegalcore/project/pisrs-complete-source-to-index-synchronization-b47e7deb7c78), including existing OLC-77 through OLC-85 issues.
-- **Only code/PR/CI authority:** this GitHub repository and its protected `main`.
-- **External source contract:** [official PISRS API documentation](https://pisrs.si/swagger/navodila).
+1. Read the relevant existing Linear issue. Identify **one measured gap**
+   between source, PostgreSQL, Qdrant, or actual nightly operation.
+2. Apply the smallest safe correction to the **existing ingest**. Research or
+   test only what is necessary to make that correction correct; reuse prior
+   evidence. No generic audits, new platforms, speculative infrastructure
+   work, unrelated refactors or unnecessary packaging.
+3. Verify the specific change and required regressions. After an authorized
+   deployment, verify its **actual data effect**, not merely CI or code state.
+4. Report concisely: what works, what remains, and the single next action.
+   Distinguish `PASS`, `FAIL` and `UNKNOWN` with dated evidence.
 
-Read the applicable existing Linear issue and evidence before doing work. Keep dated
-measurements and incident details in that issue, **not in AGENTS.md or README.md**.
+No subagents. Do not impose a special Codex command syntax (such as `/goal`)
+when a normal task suffices. Never expand scope into case law, Engine/LWS,
+`lexai-engine`, cross-project networking or firewall changes. Per the owner's
+operational declaration, only PISRS ingest writes to `pisrs_current`;
+do not invent competing writers without new evidence.
 
-## Mandatory anti-drift workflow
+## Authorization and safety
 
-1. Identify **one measured product gap** in the existing Linear backlog. State
-   how closing it improves source -> PostgreSQL -> Qdrant -> nightly correctness.
-2. Take the **shortest safe path** using the existing code. Prefer a focused fix
-   to new modules, schemas, services, abstractions, or infrastructure. Investigate
-   only unknowns that directly block that fix.
-3. Reuse passing evidence. Run only the smallest tests needed for the change and
-   the existing required CI. Never launch a new generic audit or repeat a completed
-   one without a specific invalidating change.
-4. After an authorized activation, verify its **effect on actual source/PG/Qdrant
-   data and nightly behavior**. Do not stop at a successful patch, PR, merge, tag,
-   wheel, test suite, or staging artifact.
-5. Report concisely: **what works, what is missing, one next action**. Use
-   `PASS`, `FAIL`, `UNKNOWN` with evidence and timestamps. A code PASS is
-   never a production-completeness PASS.
+Obtain explicit owner approval for the **specific operation** before bulk
+authenticated source reads, production PostgreSQL/Qdrant mutations, paid
+embeddings, `nightly`, backfill, `reconcile --apply`, deployment, Git merges,
+or checkpoint, timer or service changes. Follow an approval through its stated
+scope without artificial repeated confirmation. Do not rewrite Git history or
+existing release tags.
 
-No subagents, speculative security projects, broader refactors, platform-building,
-unnecessary packaging, or unrelated reviews. Do not turn an operator-specific
-obstacle into a cross-project networking/firewall exercise. The owner confirms
-that the PISRS ingest is the only writer to `pisrs_current`; do not investigate
-Engine/LWS as hypothetical competing writers without new evidence and a request.
+For approved writes use only directly relevant safeguards (such as backup,
+recovery, lock/preflight and readback); do not create a separate infrastructure
+project. Never expose secrets, private DSNs or sensitive raw data; report secret
+presence only as `SET`/`UNSET`.
 
-Codex work on the owner's host should use one bounded, directly executable
-`/goal` when actually needed; this chat has no access to that host's terminal.
-Do not waste the Codex weekly budget on work achievable through connected tools.
-
-## Approval boundary
-
-Require specific owner authorization before authenticated bulk PISRS API reads,
-production PostgreSQL/Qdrant writes, paid embeddings, `nightly`, backfill,
-`reconcile --apply`, checkpoint/timer/service changes, deployment, or Git
-merges/releases. Approval is scoped to the named action; do not add artificial
-confirmation rounds inside that scope. Codex security prompts may require direct
-owner approval. Never rewrite public Git history or existing release tags.
-
-Apply only necessary protections for the approved operation (a suitable backup,
-rollback/readback, lock/preflight where relevant). Do not launch independent
-infrastructure work. Represent secret presence only as `SET`/`UNSET`;
-never expose credentials, private DSNs, or raw sensitive evidence.
-
-Public documentation and code: **English**. Owner-facing communication:
-**Slovenian**. Prefer the smallest suitable model (Luna for routine inspection,
-Sol High for API/code/integrity; Astra only with demonstrated need).
+Public code and documentation are in English; communicate with the owner in
+Slovenian.
