@@ -47,18 +47,12 @@ class Act:
     datum_prenehanja_veljavnosti: str | None
     seen_in_endpoints: tuple[str, ...]
     raw: dict[str, Any]
-    raw_by_endpoint: dict[str, dict[str, Any]]
 
     @classmethod
     def from_raw(cls, row: dict[str, Any], endpoint: str) -> Act:
         register_id = row.get("id")
         moped_id = row.get("mopedId") or row.get("moped_id")
-        if (
-            type(register_id) is not int
-            or not isinstance(moped_id, str)
-            or not moped_id.strip()
-            or not _optional_text(row.get("naziv"))
-        ):
+        if register_id is None or not moped_id or not _optional_text(row.get("naziv")):
             raise SourceInvariantError(
                 "act is missing the established register_id/moped_id identity or required title"
             )
@@ -82,7 +76,6 @@ class Act:
             datum_prenehanja_veljavnosti=_optional_text(row.get("datumPrenehanjaVeljavnosti")),
             seen_in_endpoints=(endpoint,),
             raw=row,
-            raw_by_endpoint={endpoint: row},
         )
 
     def merge(self, other: Act) -> Act:
@@ -98,12 +91,6 @@ class Act:
         values["seen_in_endpoints"] = tuple(
             dict.fromkeys((*self.seen_in_endpoints, *other.seen_in_endpoints))
         )
-        raw_by_endpoint = dict(self.raw_by_endpoint)
-        for endpoint, raw in other.raw_by_endpoint.items():
-            if endpoint in raw_by_endpoint and raw_by_endpoint[endpoint] != raw:
-                raise SourceInvariantError("one endpoint maps an act to inconsistent raw metadata")
-            raw_by_endpoint[endpoint] = raw
-        values["raw_by_endpoint"] = raw_by_endpoint
         return Act(**values)
 
     def provenance(self) -> dict[str, Any]:
@@ -126,7 +113,6 @@ class Act:
             "endpoint": self.seen_in_endpoints[0],
             "seen_in_endpoints": list(self.seen_in_endpoints),
             "raw": self.raw,
-            "raw_by_endpoint": self.raw_by_endpoint,
         }
 
 
