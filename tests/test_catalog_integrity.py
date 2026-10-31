@@ -46,7 +46,7 @@ def test_discovery_includes_acts_found_only_in_each_missing_state_catalog() -> N
         "/predpis/splosni-akti-za-izvrsevanje-javnih-pooblastil",
     ]
     pages = {
-        endpoint: [{"data": [act(index)], "total": 1}]
+        endpoint: [{"data": [act(index)], "totalCount": 1}]
         for index, endpoint in enumerate(endpoints, start=1)
     }
     discovered = client(pages).discover_acts()
@@ -55,7 +55,9 @@ def test_discovery_includes_acts_found_only_in_each_missing_state_catalog() -> N
 
 
 def test_overlapping_catalogs_preserve_one_identity_and_all_provenance() -> None:
-    pages = {endpoint: [{"data": [act(1)], "total": 1}] for endpoint in PisrsClient.ACT_ENDPOINTS}
+    pages = {
+        endpoint: [{"data": [act(1)], "totalCount": 1}] for endpoint in PisrsClient.ACT_ENDPOINTS
+    }
     discovered = client(pages).discover_acts()
     assert len(discovered) == 1
     assert discovered[0].seen_in_endpoints == PisrsClient.ACT_ENDPOINTS
@@ -64,11 +66,11 @@ def test_overlapping_catalogs_preserve_one_identity_and_all_provenance() -> None
 def test_duplicate_pages_cannot_hide_a_missing_identity_behind_reported_total() -> None:
     first = [act(index) for index in range(1, 1001)]
     second = [act(index) for index in range(1000, 2000)]
-    pages = {endpoint: [{"data": [], "total": 0}] for endpoint in PisrsClient.ACT_ENDPOINTS}
+    pages = {endpoint: [{"data": [], "totalCount": 0}] for endpoint in PisrsClient.ACT_ENDPOINTS}
     pages["/predpis/register-predpisov"] = [
-        {"data": first, "total": 2000},
-        {"data": second, "total": 2000},
-        {"data": [], "total": 2000},
+        {"data": first, "totalCount": 2000},
+        {"data": second, "totalCount": 2000},
+        {"data": [], "totalCount": 2000},
     ]
     source = client(pages)
     with pytest.raises(SourceInvariantError, match="duplicate"):
@@ -159,10 +161,11 @@ def test_invalid_source_id_is_not_coerced_to_another_identity(identity) -> None:
 
 def test_late_catalog_failure_never_reaches_database_or_checkpoint(tmp_path) -> None:
     pages = {
-        endpoint: [{"data": [act(index)], "total": 1}]
+        endpoint: [{"data": [act(index)], "totalCount": 1}]
         for index, endpoint in enumerate(PisrsClient.ACT_ENDPOINTS, start=1)
     }
-    pages[PisrsClient.ACT_ENDPOINTS[-1]][0]["total"] = None
+    pages[PisrsClient.ACT_ENDPOINTS[-1]][0]["totalCount"] = None
+    source = client(pages)
     checkpoint_path = tmp_path / "checkpoint.json"
     writes = []
     postgres = SimpleNamespace(
@@ -170,7 +173,7 @@ def test_late_catalog_failure_never_reaches_database_or_checkpoint(tmp_path) -> 
     )
     with pytest.raises(SourceInvariantError, match="total"):
         run_nightly(
-            client=client(pages),
+            client=source,
             postgres=postgres,
             embedder=object(),
             qdrant=object(),
@@ -184,3 +187,18 @@ def test_late_catalog_failure_never_reaches_database_or_checkpoint(tmp_path) -> 
         )
     assert writes == []
     assert not checkpoint_path.exists()
+    assert source.http.calls == [(endpoint, 1) for endpoint in PisrsClient.ACT_ENDPOINTS]
+
+
+def test_legacy_total_does_not_replace_missing_total_count() -> None:
+    pages = {endpoint: [{"data": [], "totalCount": 0}] for endpoint in PisrsClient.ACT_ENDPOINTS}
+    pages[PisrsClient.ACT_ENDPOINTS[0]] = [{"data": [act(1)], "total": 1}]
+    with pytest.raises(SourceInvariantError, match="totalCount"):
+        client(pages).discover_acts()
+
+
+def test_bare_list_id_is_not_turned_into_an_act() -> None:
+    pages = {endpoint: [{"data": [], "totalCount": 0}] for endpoint in PisrsClient.ACT_ENDPOINTS}
+    pages[PisrsClient.ACT_ENDPOINTS[0]] = [{"data": [{"id": 1}], "totalCount": 1}]
+    with pytest.raises(SourceInvariantError, match="register_id/moped_id"):
+        client(pages).discover_acts()

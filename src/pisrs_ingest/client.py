@@ -126,7 +126,7 @@ class PisrsClient:
     def discover_acts(self) -> list[Act]:
         by_id: dict[int, Act] = {}
         for endpoint in self.ACT_ENDPOINTS:
-            for row in self._pages(endpoint, total_key="total"):
+            for row in self._pages(endpoint, total_key="totalCount"):
                 act = Act.from_raw(row, endpoint)
                 by_id[act.register_id] = (
                     by_id[act.register_id].merge(act) if act.register_id in by_id else act
