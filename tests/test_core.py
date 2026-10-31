@@ -30,6 +30,7 @@ from pisrs_ingest.pipeline import (
     plan_reconciliation,
     run_nightly,
 )
+from pisrs_ingest.postgres_act_links import ActLinkStats
 from pisrs_ingest.qdrant import PointState, QdrantInvariantError, payload_patch
 
 
@@ -107,6 +108,8 @@ class FakePostgres:
             pending=self.pending_versions, synchronize=self.synchronize_version
         )
         self.chunks = SimpleNamespace(
+            link_missing_acts=lambda limit: ActLinkStats(),
+            uploaded_point_ids=lambda ids: set(),
             touched_sops=self.touched_sops,
             prepare_rollover=self.prepare_rollover,
             rows_for_point_ids=self.rows_for_point_ids,
@@ -515,6 +518,8 @@ class DocumentRunPostgres:
         self.documents = SimpleNamespace(pending=self.pending, synchronize=self.synchronize)
         self.chunks = SimpleNamespace(
             touched_sops=lambda since: [],
+            link_missing_acts=lambda limit: ActLinkStats(),
+            uploaded_point_ids=lambda ids: set(),
             prepare_rollover=lambda sop, model, dimensions: [],
             mark_uploaded=lambda rows: None,
         )
