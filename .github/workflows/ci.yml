@@ -43,6 +43,6 @@ jobs:
       - name: Isolated PostgreSQL payload tests
         env:
           PISRS_TEST_DATABASE_DSN: postgresql://postgres:postgres@localhost:5432/pisrs_test_payloads
-        run: uv run pytest tests/test_payload_materialization.py -k test_pg_
+        run: uv run pytest tests/test_payload_materialization.py tests/test_act_links.py -k test_pg_
       - name: Build distributions
         run: uv run python -m build --no-isolation

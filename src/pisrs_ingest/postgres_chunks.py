@@ -19,6 +19,7 @@ from .models import (
     version_rank,
 )
 from .postgres import PostgresDatabase, PostgresInvariantError
+from .postgres_act_links import ActLinkStats, link_missing_acts
 from .postgres_payloads import refresh_stored_payloads
 
 VECTOR_COLUMNS = """
@@ -44,6 +45,23 @@ class ChunkStore:
     def __init__(self, database: PostgresDatabase, collection: str) -> None:
         self.database = database
         self.collection = collection
+
+    def link_missing_acts(self, max_versions: int) -> ActLinkStats:
+        return link_missing_acts(self.database, self.collection, max_versions)
+
+    def uploaded_point_ids(self, point_ids: set[str]) -> set[str]:
+        """Existing uploads require payload-only handling, also after a failed interval."""
+
+        if not point_ids:
+            return set()
+        with self.database.connect(read_only=True) as connection:
+            rows = connection.execute(
+                "SELECT qdrant_point_id FROM pisrs.embedding_chunks "
+                "WHERE collection_name=%s AND qdrant_status='uploaded' "
+                "AND qdrant_point_id=ANY(%s)",
+                (self.collection, sorted(point_ids)),
+            ).fetchall()
+        return {row["qdrant_point_id"] for row in rows}
 
     def touched_sops(self, since: datetime) -> list[str]:
         with self.database.connect(read_only=True) as connection:
@@ -96,6 +114,19 @@ class ChunkStore:
                 return self._rows_for_sop(cursor, sop)
 
             latest = latest_version(versions)
+            parent_links = {version["id"]: version["act_id"] for version in versions}
+            existing_links = cursor.execute(
+                "SELECT version_id,act_id FROM pisrs.embedding_chunks "
+                "WHERE collection_name=%s AND version_id=ANY(%s) ORDER BY id FOR UPDATE",
+                (self.collection, list(parent_links)),
+            ).fetchall()
+            if any(
+                row["act_id"] is not None and row["act_id"] != parent_links[row["version_id"]]
+                for row in existing_links
+            ):
+                raise PostgresInvariantError(
+                    "rollover would overwrite an existing non-NULL act link"
+                )
             block_rows = cursor.execute(
                 """
                     SELECT block_index, block_type, article_no, article_title,

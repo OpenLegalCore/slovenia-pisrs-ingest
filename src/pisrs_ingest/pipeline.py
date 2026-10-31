@@ -49,6 +49,11 @@ class NightlyStats:
     vectors_reused: int = 0
     payloads_updated: int = 0
     inactive_points_missing: int = 0
+    act_links_filled: int = 0
+    block_links_filled: int = 0
+    chunk_links_filled: int = 0
+    act_links_unmatched: int = 0
+    act_links_ambiguous: int = 0
 
 
 @dataclass(frozen=True)
@@ -152,12 +157,20 @@ def run_nightly(
             )
     stats.documents_failed = len(failures)
 
+    links = postgres.chunks.link_missing_acts(max_documents)
+    stats.act_links_filled = links.versions
+    stats.block_links_filled = links.blocks
+    stats.chunk_links_filled = links.chunks
+    stats.act_links_unmatched = links.unmatched
+    stats.act_links_ambiguous = links.ambiguous
+
     touched_sops = postgres.chunks.touched_sops(interval.start)
     stats.sops_touched = len(touched_sops)
     rollover_rows: list[VectorRow] = []
     for sop in touched_sops:
         rollover_rows.extend(postgres.chunks.prepare_rollover(sop, model, dimensions))
     rows = _final_rollover_rows(postgres.chunks, rollover_rows)
+    payload_only_ids = postgres.chunks.uploaded_point_ids({row.point_id for row in rows})
 
     qdrant.validate_collection(dimensions, model)
     _ensure_vectors_and_payloads(
@@ -168,6 +181,7 @@ def run_nightly(
         embed_batch_size=embed_batch_size,
         max_embedding_input_bytes=max_embedding_input_bytes,
         stats=stats,
+        payload_only_point_ids=payload_only_ids,
     )
 
     if failures:
@@ -199,7 +213,24 @@ def _ensure_vectors_and_payloads(
     embed_batch_size: int,
     max_embedding_input_bytes: int,
     stats: NightlyStats,
+    payload_only_point_ids: set[str] | frozenset[str] = frozenset(),
 ) -> None:
+    # Validate every existing upload before any provider or Qdrant mutation. The
+    # uploaded status already survives a PG/Qdrant interruption; no new queue is needed.
+    existing: dict[str, PointState] = {}
+    for row in rows:
+        if row.point_id in payload_only_point_ids:
+            state = qdrant.get_point(row.point_id)
+            if (
+                state is None
+                or state.point_id != row.point_id
+                or not _vector_contract_matches(row, state)
+            ):
+                raise PipelineError(
+                    "existing upload requires a matching vector for payload-only sync"
+                )
+            payload_patch(row.payload(), state.payload)
+            existing[row.point_id] = state
     active_rows = [row for row in rows if row.is_active and row.is_latest_for_sop]
     planned_batches: list[tuple[list[tuple[VectorRow, PointState]], list[VectorRow]]] = []
     for start in range(0, len(active_rows), embed_batch_size):
@@ -207,7 +238,7 @@ def _ensure_vectors_and_payloads(
         reusable: list[tuple[VectorRow, PointState]] = []
         needs_embedding: list[VectorRow] = []
         for row in batch:
-            state = qdrant.get_point(row.point_id)
+            state = existing.get(row.point_id) or qdrant.get_point(row.point_id)
             if state is not None and _vector_contract_matches(row, state):
                 reusable.append((row, state))
             else:
@@ -243,7 +274,7 @@ def _ensure_vectors_and_payloads(
     for row in rows:
         if row.is_active and row.is_latest_for_sop:
             continue
-        state = qdrant.get_point(row.point_id)
+        state = existing.get(row.point_id) or qdrant.get_point(row.point_id)
         if state is None:
             stats.inactive_points_missing += 1
             continue
