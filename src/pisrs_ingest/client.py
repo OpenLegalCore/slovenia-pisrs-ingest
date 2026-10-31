@@ -107,6 +107,9 @@ class PisrsClient:
         "/predpis/neveljavni-predpisi",
         "/predpis/obsoletni-in-konzumirani-predpisi",
         "/predpis/evidenca-normodajalcev",
+        "/predpis/predpisi-v-pripravi",
+        "/predpis/drugi-splosni-in-posamicni-akti",
+        "/predpis/splosni-akti-za-izvrsevanje-javnih-pooblastil",
     )
 
     def __init__(self, base_url: str, token: str, http: HttpClient | None = None) -> None:
@@ -171,6 +174,8 @@ class PisrsClient:
         page = 1
         page_size = 1000
         result: list[dict[str, Any]] = []
+        seen_ids: set[int] = set()
+        expected_total: int | None = None
         while page <= 1000:
             response = self.http.request(
                 "GET",
@@ -180,16 +185,35 @@ class PisrsClient:
                 phase=("act_discovery" if endpoint in self.ACT_ENDPOINTS else "npb_discovery"),
             )
             payload = response.json()
+            if not isinstance(payload, dict):
+                raise HttpError(f"PISRS {endpoint} response is not an object")
             rows = payload.get("data")
             if not isinstance(rows, list):
                 raise HttpError(f"PISRS {endpoint} response does not contain a data list")
+            reported = payload.get(total_key)
+            if type(reported) is not int or reported < 0:
+                raise SourceInvariantError(f"PISRS {endpoint} has no valid {total_key} total")
+            if expected_total is None:
+                expected_total = reported
+            elif reported != expected_total:
+                raise SourceInvariantError(f"PISRS {endpoint} reported total changed during paging")
+            if len(rows) > page_size:
+                raise SourceInvariantError(f"PISRS {endpoint} exceeded the requested page size")
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise SourceInvariantError(f"PISRS {endpoint} contains a non-object row")
+                identity = row.get("id")
+                if type(identity) is not int or identity <= 0:
+                    raise SourceInvariantError(f"PISRS {endpoint} contains an invalid id")
+                if identity in seen_ids:
+                    raise SourceInvariantError(f"PISRS {endpoint} contains a duplicate id")
+                seen_ids.add(identity)
             result.extend(rows)
-            if not rows or len(rows) < page_size:
-                reported = payload.get(total_key)
-                if isinstance(reported, int) and reported > len(result):
-                    raise SourceInvariantError(
-                        f"PISRS {endpoint} stopped before its reported total"
-                    )
+            if len(result) > expected_total:
+                raise SourceInvariantError(f"PISRS {endpoint} exceeded its reported total")
+            if len(result) == expected_total and len(rows) < page_size:
                 return result
+            if not rows:
+                raise SourceInvariantError(f"PISRS {endpoint} stopped before its reported total")
             page += 1
         raise SourceInvariantError(f"PISRS {endpoint} exceeded the page safety limit")
