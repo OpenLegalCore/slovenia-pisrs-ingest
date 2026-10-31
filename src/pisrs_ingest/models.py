@@ -225,33 +225,32 @@ class VectorRow:
         return canonical_payload(self)
 
 
-MANAGED_PAYLOAD_KEYS = frozenset(
-    {
-        "source",
-        "collection_name",
-        "act_id",
-        "version_id",
-        "text_id",
-        "sop",
-        "sop_from_docno",
-        "npb_label",
-        "naziv",
-        "title",
-        "chunk_index",
-        "chunk_type",
-        "chunk_text_len",
-        "block_start_index",
-        "block_end_index",
-        "block_count",
-        "token_estimate",
-        "content_hash",
-        "is_latest_for_sop",
-        "is_active",
-        "embedding_model",
-        "embedding_dimensions",
-        "text",
-    }
-)
+CANONICAL_PAYLOAD_COLUMNS = {
+    "collection_name": "collection_name",
+    "act_id": "act_id",
+    "version_id": "version_id",
+    "text_id": "text_id",
+    "sop": "sop",
+    "sop_from_docno": "sop_from_docno",
+    "npb_label": "npb_label",
+    "naziv": "naziv",
+    "title": "title",
+    "chunk_index": "chunk_index",
+    "chunk_type": "chunk_type",
+    "chunk_text_len": "chunk_text_len",
+    "block_start_index": "block_start_index",
+    "block_end_index": "block_end_index",
+    "block_count": "block_count",
+    "token_estimate": "token_estimate",
+    "content_hash": "content_hash",
+    "is_latest_for_sop": "is_latest_for_sop",
+    "is_active": "is_active",
+    "embedding_model": "embedding_model",
+    "embedding_dimensions": "embedding_dimensions",
+    "text": "chunk_text",
+}
+
+MANAGED_PAYLOAD_KEYS = frozenset({"source", *CANONICAL_PAYLOAD_COLUMNS})
 
 
 def canonical_payload(row: VectorRow) -> dict[str, Any]:
@@ -259,28 +258,7 @@ def canonical_payload(row: VectorRow) -> dict[str, Any]:
 
     return {
         "source": "pisrs",
-        "collection_name": row.collection_name,
-        "act_id": row.act_id,
-        "version_id": row.version_id,
-        "text_id": row.text_id,
-        "sop": row.sop,
-        "sop_from_docno": row.sop_from_docno,
-        "npb_label": row.npb_label,
-        "naziv": row.naziv,
-        "title": row.title,
-        "chunk_index": row.chunk_index,
-        "chunk_type": row.chunk_type,
-        "chunk_text_len": row.chunk_text_len,
-        "block_start_index": row.block_start_index,
-        "block_end_index": row.block_end_index,
-        "block_count": row.block_count,
-        "token_estimate": row.token_estimate,
-        "content_hash": row.content_hash,
-        "is_latest_for_sop": row.is_latest_for_sop,
-        "is_active": row.is_active,
-        "embedding_model": row.embedding_model,
-        "embedding_dimensions": row.embedding_dimensions,
-        "text": row.chunk_text,
+        **{key: getattr(row, column) for key, column in CANONICAL_PAYLOAD_COLUMNS.items()},
     }
 
 

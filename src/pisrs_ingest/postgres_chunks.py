@@ -19,6 +19,7 @@ from .models import (
     version_rank,
 )
 from .postgres import PostgresDatabase, PostgresInvariantError
+from .postgres_payloads import refresh_stored_payloads
 
 VECTOR_COLUMNS = """
 id AS database_id, qdrant_point_id AS point_id, act_id, version_id, text_id, sop,
@@ -91,6 +92,7 @@ class ChunkStore:
             ).fetchall()
             if not versions:
                 cursor.execute(DEACTIVATE_SOP, (self.collection, sop))
+                refresh_stored_payloads(cursor, self.collection, sop=sop)
                 return self._rows_for_sop(cursor, sop)
 
             latest = latest_version(versions)
@@ -136,6 +138,7 @@ class ChunkStore:
                 CHUNK_UPSERT,
                 [self._chunk_parameters(latest, chunk, model, dimensions) for chunk in chunks],
             )
+            refresh_stored_payloads(cursor, self.collection, sop=sop)
             return self._rows_for_sop(cursor, sop)
 
     def _chunk_parameters(
@@ -310,7 +313,7 @@ ON CONFLICT (collection_name, text_id, chunk_index) DO UPDATE SET
     qdrant_upserted_at = CASE WHEN
         pisrs.embedding_chunks.content_hash IS DISTINCT FROM EXCLUDED.content_hash
         THEN NULL ELSE pisrs.embedding_chunks.qdrant_upserted_at END,
-    payload = EXCLUDED.payload, updated_at = now()
+    payload = pisrs.embedding_chunks.payload || EXCLUDED.payload, updated_at = now()
 WHERE ROW(
     pisrs.embedding_chunks.act_id, pisrs.embedding_chunks.version_id,
     pisrs.embedding_chunks.sop, pisrs.embedding_chunks.sop_from_docno,
@@ -323,6 +326,6 @@ WHERE ROW(
     EXCLUDED.act_id, EXCLUDED.version_id, EXCLUDED.sop, EXCLUDED.sop_from_docno,
     EXCLUDED.npb_label, EXCLUDED.naziv, EXCLUDED.title, EXCLUDED.content_hash,
     TRUE, TRUE, EXCLUDED.embedding_model, EXCLUDED.embedding_dimensions,
-    EXCLUDED.payload
+    pisrs.embedding_chunks.payload || EXCLUDED.payload
 )
 """
