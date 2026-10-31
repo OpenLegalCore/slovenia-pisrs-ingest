@@ -77,7 +77,7 @@ def main():
         or args.manifest_sha256 != hashlib.sha256(files["manifest.json"]).hexdigest()
     ):
         raise ValueError("separate approval of exact manifest and local pkexec required")
-    directory = Path("/var/lib/pisrs-ingest") / (".act-link-code-" + args.package_sha256)
+    directory = Path("/var/lib") / (".pisrs-act-link-code-" + args.package_sha256)
     stage(files, directory)
     sys.path.insert(0, str(directory / "src"))
     sys.argv = [

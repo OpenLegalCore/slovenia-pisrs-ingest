@@ -299,6 +299,7 @@ def restore_sql(manifest, expected):
     )
     parts = [
         "BEGIN; SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='3s';",
+        "SET LOCAL TIME ZONE 'UTC';",
         "SET LOCAL standard_conforming_strings=on; SET LOCAL session_replication_role=replica;",
         "LOCK TABLE pisrs.acts IN SHARE MODE;",
     ]

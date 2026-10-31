@@ -511,3 +511,18 @@ def test_recovery_broker_identity_guard_is_read_only(tmp_path, monkeypatch, faul
     with pytest.raises(PostgresInvariantError):
         runner.recovery_context(tmp_path)
     assert commands
+
+
+def test_pg_recovery_is_independent_of_admin_session_timezone(operation_case):
+    c, m, _, _, _, _ = operation_case
+    run(operation_case)
+    c.execute("SET TIME ZONE 'Europe/Ljubljana'")
+    try:
+        assert (
+            run(operation_case, rollback=True, admin_restore=lambda sql: c.execute(sql))["result"]
+            == "ROLLED_BACK"
+        )
+        assert c.execute("SHOW timezone").fetchone()["TimeZone"] == "Europe/Ljubljana"
+    finally:
+        c.execute("SET TIME ZONE 'UTC'")
+    assert snapshot(c, m) == m["before"]
