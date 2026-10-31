@@ -270,8 +270,27 @@ def metadata(c):
         WHERE t.tgrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
         'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass])
         AND NOT t.tgisinternal ORDER BY c.relname,t.tgname""").fetchall()
+    foreign_keys = c.execute("""SELECT c.conrelid::regclass::text AS table_name,c.conname,
+        pg_get_constraintdef(c.oid) AS definition,c.convalidated,c.condeferrable,
+        c.confmatchtype FROM pg_constraint c WHERE c.contype='f'
+        AND (c.conrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+          'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass])
+          OR c.confrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+          'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass]))
+        ORDER BY c.conrelid::regclass::text,c.conname""").fetchall()
+    constraint_triggers = c.execute("""SELECT t.tgrelid::regclass::text AS table_name,
+        c.conrelid::regclass::text AS referencing_table,c.conname,t.tgenabled,
+        t.tgfoid::regproc::text AS function FROM pg_trigger t JOIN pg_constraint c
+        ON c.oid=t.tgconstraint WHERE c.contype='f'
+        AND (c.conrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+          'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass])
+          OR c.confrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+          'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass]))
+        ORDER BY t.tgrelid::regclass::text,c.conname,t.tgfoid::regproc::text""").fetchall()
     return {
         "identity": identity,
+        "foreign_keys": foreign_keys,
+        "constraint_triggers": constraint_triggers,
         "table_rights": rights,
         "column_rights": columns,
         "triggers": triggers,
@@ -400,7 +419,14 @@ def operation(
     with connect(env, read_only=True) as c:
         current = metadata(c)
     if expected_metadata is not None:
-        for key in ["table_rights", "column_rights", "triggers"]:
+        for key in [
+            "table_rights",
+            "column_rights",
+            "triggers",
+            "foreign_keys",
+            "constraint_triggers",
+        ]:
+            require(key in expected_metadata, "package requires new FK metadata and resealing")
             require(current[key] == expected_metadata[key], "database ACL/schema metadata drift")
         require(
             current["identity"]["role"] == expected_metadata["identity"]["role"],
@@ -542,8 +568,11 @@ def recovery_context(package):
     query = """BEGIN READ ONLY; SET LOCAL statement_timeout='5s';
         SELECT jsonb_build_object('database',current_database(),'admin_role',current_user,
         'system_identifier',(SELECT system_identifier::text FROM pg_control_system()),
-        'can_set_replication_role',has_parameter_privilege(
-            current_user,'session_replication_role','SET')); ROLLBACK;"""
+        'can_manage_timestamp_triggers',(SELECT rolsuper OR
+            (SELECT bool_and(pg_has_role(current_user,c.relowner,'USAGE')) FROM pg_class c
+             WHERE c.oid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+               'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass]))
+            FROM pg_roles WHERE rolname=current_user)); ROLLBACK;"""
     raw = command(
         [
             "docker",
@@ -567,7 +596,7 @@ def recovery_context(package):
     require(
         len(values) == 1
         and all(values[0][k] == pinned[k] for k in values[0])
-        and values[0]["can_set_replication_role"],
+        and values[0]["can_manage_timestamp_triggers"],
         "recovery identity/permission drift",
     )
     return legacy

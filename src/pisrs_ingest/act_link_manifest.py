@@ -192,6 +192,7 @@ def lock_and_validate(connection, manifest):
             "SELECT id FROM pisrs.acts WHERE sop=%s ORDER BY id", (target["sop"],)
         ).fetchall()
         require([r["id"] for r in candidates] == [target["act_id"]], "SOP proof drift")
+    connection.execute(recovery_fk_checks(manifest))
     timestamp = connection.execute("SELECT to_jsonb(transaction_timestamp()) AS stamp").fetchone()
     return expected_state(manifest, timestamp["stamp"])
 
@@ -281,11 +282,80 @@ def sync_points(manifest, retrieve, patch, *, reverse=False, progress=lambda *_:
     return changed
 
 
+def recovery_fk_checks(manifest):
+    """Check every outgoing FK of the closed rows, including unchanged FK columns."""
+    ids = [t["version_id"] for t in manifest["targets"]]
+    return """DO $restore$
+    DECLARE fk record; predicates text; nonnulls text; nulls text;
+            invalid text; selector text; broken boolean;
+    BEGIN
+      IF current_setting('session_replication_role') NOT IN ('origin','local') THEN
+        RAISE EXCEPTION 'origin FK enforcement required';
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_constraint c WHERE c.contype='f'
+          AND c.conrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+            'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass])
+          AND (NOT c.convalidated OR c.confmatchtype NOT IN ('s','f') OR EXISTS(
+            SELECT 1 FROM pg_trigger t WHERE t.tgconstraint=c.oid
+            AND t.tgenabled NOT IN ('O','A')))) THEN
+        RAISE EXCEPTION 'unvalidated or disabled foreign key';
+      END IF;
+      -- Incoming keys must reference immutable IDs, never a field being restored.
+      IF EXISTS (SELECT 1 FROM pg_constraint c
+          JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=ANY(c.confkey)
+          WHERE c.contype='f' AND c.confrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+            'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass])
+          AND a.attname IN ('act_id','payload','updated_at')) THEN
+        RAISE EXCEPTION 'incoming FK references mutable recovery fields';
+      END IF;
+      FOR fk IN SELECT c.* FROM pg_constraint c WHERE c.contype='f'
+        AND c.conrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+          'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass]) ORDER BY c.oid
+      LOOP
+        SELECT string_agg(format('t.%I = r.%I',a.attname,b.attname),' AND ' ORDER BY k.n),
+               string_agg(format('t.%I IS NOT NULL',a.attname),' AND ' ORDER BY k.n),
+               string_agg(format('t.%I IS NULL',a.attname),' AND ' ORDER BY k.n)
+        INTO predicates,nonnulls,nulls
+        FROM unnest(fk.conkey,fk.confkey) WITH ORDINALITY k(child,parent,n)
+        JOIN pg_attribute a ON a.attrelid=fk.conrelid AND a.attnum=k.child
+        JOIN pg_attribute b ON b.attrelid=fk.confrelid AND b.attnum=k.parent;
+        invalid=format('((%s) AND NOT EXISTS (SELECT 1 FROM %s r WHERE %s))',
+                       nonnulls,fk.confrelid::regclass,predicates);
+        IF fk.confmatchtype='f' THEN
+          invalid=invalid||format(' OR (NOT (%s) AND NOT (%s))',nulls,nonnulls);
+        END IF;
+        selector=CASE WHEN fk.conrelid='pisrs.act_text_versions'::regclass
+                      THEN 'id' ELSE 'version_id' END;
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM %s t WHERE t.%I=ANY($1) AND (%s))',
+                       fk.conrelid::regclass,selector,invalid) INTO broken USING IDS_LITERAL;
+        IF broken THEN RAISE EXCEPTION 'closed row foreign key mismatch'; END IF;
+      END LOOP;
+    END $restore$;""".replace("IDS_LITERAL", f"ARRAY{ids}::bigint[]")
+
+
+def timestamp_trigger_guard():
+    return """DO $restore$
+    BEGIN
+      IF (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+          JOIN pg_proc p ON p.oid=t.tgfoid
+          WHERE t.tgrelid=ANY(ARRAY['pisrs.act_text_versions'::regclass,
+            'pisrs.act_text_blocks'::regclass,'pisrs.embedding_chunks'::regclass])
+          AND t.tgname='trg_'||c.relname||'_updated_at'
+          AND NOT t.tgisinternal AND t.tgenabled='O' AND t.tgtype=19
+          AND t.tgqual IS NULL AND t.tgnargs=0 AND t.tgattr=''::int2vector
+          AND t.tgfoid='pisrs.touch_updated_at()'::regprocedure
+          AND lower(regexp_replace(p.prosrc,'[[:space:]]','','g'))=
+              'beginnew.updated_at=now();returnnew;end;') <> 3 THEN
+        RAISE EXCEPTION 'timestamp trigger contract drift';
+      END IF;
+    END $restore$;"""
+
+
 def restore_sql(manifest, expected):
     """Narrow privileged recovery, only after all Qdrant points are proved restored.
 
-    The timestamp trigger is bypassed only in this recovery transaction. Full-row
-    guards precede all updates. The caller must hold the real application flock.
+    Only the three reviewed timestamp triggers are disabled transactionally.
+    FK and other triggers remain enabled. The caller holds the application flock.
     """
     validate_manifest(manifest)
     require(
@@ -300,7 +370,9 @@ def restore_sql(manifest, expected):
     parts = [
         "BEGIN; SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='3s';",
         "SET LOCAL TIME ZONE 'UTC';",
-        "SET LOCAL standard_conforming_strings=on; SET LOCAL session_replication_role=replica;",
+        "SET LOCAL standard_conforming_strings=on; SET CONSTRAINTS ALL IMMEDIATE;",
+        "LOCK TABLE pisrs.act_text_versions, pisrs.act_text_blocks, "
+        "pisrs.embedding_chunks IN ACCESS EXCLUSIVE MODE;",
         "LOCK TABLE pisrs.acts IN SHARE MODE;",
     ]
     for table in TABLES:
@@ -320,6 +392,9 @@ def restore_sql(manifest, expected):
               IS DISTINCT FROM '{after}'::jsonb THEN RAISE EXCEPTION 'recovery drift'; END IF;
         END $restore$;""")
         # All tables must pass before ANY restore UPDATE (append updates separately below).
+    parts.extend([timestamp_trigger_guard(), recovery_fk_checks(manifest)])
+    for table in TABLES:
+        parts.append(f"ALTER TABLE ONLY pisrs.{table} DISABLE TRIGGER trg_{table}_updated_at;")
     for table in TABLES:
         before = encoded(manifest["before"][table]).decode().replace("'", "''")
         payload = ",payload=a.payload" if table == TABLES[2] else ""
@@ -337,6 +412,10 @@ def restore_sql(manifest, expected):
               FROM pisrs.{table} t WHERE {col}=ANY(ARRAY{ids}::bigint[]))
               IS DISTINCT FROM '{before}'::jsonb THEN RAISE EXCEPTION 'restore readback'; END IF;
         END $restore$;""")
+    parts.append(recovery_fk_checks(manifest))
+    for table in TABLES:
+        parts.append(f"ALTER TABLE ONLY pisrs.{table} ENABLE TRIGGER trg_{table}_updated_at;")
+    parts.append(timestamp_trigger_guard())
     parts.append("COMMIT; SELECT 'RESTORED_COMMITTED';")
     text = "\n".join(parts)
     tag = "$actlink_" + digest(manifest) + "$"

@@ -469,13 +469,13 @@ def test_launcher_seal_rejects_tampering_and_stages_exact_bytes(tmp_path):
         launch.stage(files, target)
 
 
-@pytest.mark.parametrize("fault", ["port", "system_identifier", "can_set_replication_role"])
+@pytest.mark.parametrize("fault", ["port", "system_identifier", "can_manage_timestamp_triggers"])
 def test_recovery_broker_identity_guard_is_read_only(tmp_path, monkeypatch, fault):
     pinned = {
         "database": "appdb",
         "admin_role": "test_admin",
         "system_identifier": "123",
-        "can_set_replication_role": True,
+        "can_manage_timestamp_triggers": True,
     }
     (tmp_path / "recovery-identity.json").write_text(json.dumps(pinned))
     monkeypatch.setattr(
@@ -503,7 +503,7 @@ def test_recovery_broker_identity_guard_is_read_only(tmp_path, monkeypatch, faul
         value = {**pinned}
         if fault == "system_identifier":
             value[fault] = "wrong"
-        if fault == "can_set_replication_role":
+        if fault == "can_manage_timestamp_triggers":
             value[fault] = False
         return json.dumps(value)
 
@@ -526,3 +526,92 @@ def test_pg_recovery_is_independent_of_admin_session_timezone(operation_case):
     finally:
         c.execute("SET TIME ZONE 'UTC'")
     assert snapshot(c, m) == m["before"]
+
+
+def test_pg_narrow_restore_keeps_foreign_keys_enforced(operation_case):
+    c, m, _, out, _, _ = operation_case
+    run(operation_case)
+    expected = json.loads((out / "expected-after.json").read_text())
+    c.execute("CREATE TABLE pisrs.allowed_times (stamp timestamptz PRIMARY KEY)")
+    c.execute(
+        "INSERT INTO pisrs.allowed_times SELECT DISTINCT updated_at FROM pisrs.embedding_chunks"
+    )
+    c.execute(
+        "ALTER TABLE pisrs.embedding_chunks ADD CONSTRAINT recovery_fk_test "
+        "FOREIGN KEY(updated_at) REFERENCES pisrs.allowed_times(stamp)"
+    )
+    with pytest.raises(psycopg.errors.ForeignKeyViolation), c.transaction():
+        c.execute(restore_sql(m, expected))
+    assert snapshot(c, m) == expected
+    assert c.execute(
+        "SELECT bool_and(tgenabled='O') ok FROM pg_trigger WHERE NOT tgisinternal"
+    ).fetchone()["ok"]
+    assert (
+        c.execute("SHOW session_replication_role").fetchone()["session_replication_role"]
+        == "origin"
+    )
+    c.execute(
+        "INSERT INTO pisrs.allowed_times(stamp) VALUES (%s)",
+        (m["before"][TABLES[2]][0]["updated_at"],),
+    )
+    assert (
+        run(operation_case, rollback=True, admin_restore=lambda sql: c.execute(sql))["result"]
+        == "ROLLED_BACK"
+    )
+    assert snapshot(c, m) == m["before"]
+
+
+def test_pg_narrow_restore_fires_other_triggers(operation_case):
+    c, m, _, out, _, _ = operation_case
+    run(operation_case)
+    c.execute("CREATE TABLE pisrs.synthetic_audit (id bigint)")
+    c.execute("""CREATE FUNCTION pisrs.synthetic_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN INSERT INTO pisrs.synthetic_audit VALUES(NEW.id); RETURN NEW; END; $$""")
+    c.execute(
+        "CREATE TRIGGER synthetic_audit AFTER UPDATE ON pisrs.embedding_chunks "
+        "FOR EACH ROW EXECUTE FUNCTION pisrs.synthetic_audit()"
+    )
+    expected = json.loads((out / "expected-after.json").read_text())
+    with c.transaction():
+        c.execute(restore_sql(m, expected))
+    assert snapshot(c, m) == m["before"]
+    assert c.execute("SELECT count(*) n FROM pisrs.synthetic_audit").fetchone()["n"] == 2
+    assert c.execute(
+        "SELECT bool_and(tgenabled='O') ok FROM pg_trigger WHERE NOT tgisinternal"
+    ).fetchone()["ok"]
+
+
+def test_pg_recovery_rejects_disabled_fk_and_replica_session(operation_case):
+    c, m, _, out, _, _ = operation_case
+    run(operation_case)
+    expected = json.loads((out / "expected-after.json").read_text())
+    with pytest.raises(psycopg.errors.RaiseException), c.transaction():
+        c.execute("SET LOCAL session_replication_role='replica'")
+        c.execute(restore_sql(m, expected))
+    c.execute("ALTER TABLE pisrs.act_text_blocks DISABLE TRIGGER ALL")
+    try:
+        with pytest.raises(psycopg.errors.RaiseException), c.transaction():
+            c.execute(restore_sql(m, expected))
+        assert snapshot(c, m) == expected
+    finally:
+        c.execute("ALTER TABLE pisrs.act_text_blocks ENABLE TRIGGER ALL")
+
+
+def test_pg_recovery_checks_unchanged_fk_columns(operation_case):
+    c, m, _, out, _, _ = operation_case
+    run(operation_case)
+    expected = json.loads((out / "expected-after.json").read_text())
+    c.execute("CREATE TABLE pisrs.allowed_texts (text_id bigint PRIMARY KEY)")
+    c.execute("INSERT INTO pisrs.allowed_texts SELECT text_id FROM pisrs.act_text_versions")
+    c.execute(
+        "ALTER TABLE pisrs.embedding_chunks ADD CONSTRAINT unchanged_fk_test "
+        "FOREIGN KEY(text_id) REFERENCES pisrs.allowed_texts(text_id)"
+    )
+    # Simulate a legacy orphan without changing any approved row. Re-enable the
+    # referenced-side FK triggers immediately; the recovery must still detect it.
+    c.execute("ALTER TABLE pisrs.allowed_texts DISABLE TRIGGER ALL")
+    c.execute("DELETE FROM pisrs.allowed_texts")
+    c.execute("ALTER TABLE pisrs.allowed_texts ENABLE TRIGGER ALL")
+    with pytest.raises(psycopg.errors.RaiseException), c.transaction():
+        c.execute(restore_sql(m, expected))
+    assert snapshot(c, m) == expected

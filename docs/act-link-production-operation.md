@@ -68,12 +68,48 @@ payload. This changes no other payload values and never includes vectors.
 Only after the Qdrant recovery readback does the narrow root broker regenerate the
 approved PG recovery SQL. All tables must exactly match their full expected images
 under row locks before any UPDATE. It restores only act_id, chunk payload and
-updated_at. SET LOCAL session_replication_role=replica in this one privileged
-recovery transaction preserves the original timestamps despite the reviewed
-triggers. No trigger/schema/global configuration is changed. Full-row checks run
-again before commit; a fresh read resolves a lost recovery response. Confirmed
-restores are not repeated. Corrupt images, unrelated changes or an unresolved
-outcome stop recovery. No blind retry or vector overwrite is available.
+updated_at. The three named timestamp triggers are disabled and re-enabled inside
+that single bounded transaction. ACCESS EXCLUSIVE locks prevent concurrent access
+and trigger-state changes during recovery. FK and other triggers remain enabled,
+SET CONSTRAINTS ALL IMMEDIATE is used, and a replica-mode session is rejected.
+All outgoing FK values of the closed rows are checked by explicit anti-joins before
+and after recovery, including unchanged npb_catalog_id/version_id fields. Incoming
+FKs must reference immutable fields. Full-row checks run again before commit;
+confirmed restores are not repeated. Corrupt images, unrelated changes or an
+unresolved outcome stop recovery. No vector overwrite is available.
+
+### Why the original c51691a used replica mode, and why it is replaced
+
+The installed BEFORE UPDATE ROW triggers are:
+
+- trg_act_text_versions_updated_at
+- trg_act_text_blocks_updated_at
+- trg_embedding_chunks_updated_at
+
+Each calls pisrs.touch_updated_at(), whose body assigns NEW.updated_at=now() and
+returns NEW. An ordinary UPDATE therefore cannot restore the old timestamp.
+The original proposal used SET LOCAL session_replication_role=replica to skip those
+triggers. That setting also suppresses origin-mode referential-integrity triggers
+and rules. The inspected relationship graph contains six FKs and 24 internal RI
+triggers (check_ins/check_upd, noaction_upd, setnull_del and cascade_del), all origin
+mode, in addition to the three timestamps. Full-row hashes alone are not a fresh
+validation of every unchanged FK value.
+
+The reviewed replacement bypasses only the three named, body-checked timestamp
+triggers. All three must initially be enabled in origin mode, with no WHEN clause,
+column filter or arguments. They are restored to that state before commit, and DDL
+rolls back on any failure. No DISABLE TRIGGER ALL/USER and no replica session are
+used by recovery. Trigger-management ownership is required for the narrow broker;
+the normal application operation still runs as the service user.
+
+The isolated regressions prove an actual FK violation aborts recovery, unchanged FK
+orphans are detected, unrelated triggers still fire, and the trigger states/timestamps
+are correct after commit or rollback. The original private sealed package remains
+unchanged. A new candidate must be resealed with its code and FK/trigger metadata
+before any later production approval.
+
+Primary references: [PostgreSQL session replication role](https://www.postgresql.org/docs/18/runtime-config-client.html#GUC-SESSION-REPLICATION-ROLE),
+[named trigger enable/disable](https://www.postgresql.org/docs/18/sql-altertable.html).
 
 ## Limits
 
