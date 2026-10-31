@@ -67,16 +67,21 @@ Use the same legitimate local authentication path as the preparation. It contain
 and must not be run as a diagnostic. No point/row/checkpoint is changed by capture.
 
 ```python
-import fcntl, hashlib, importlib.util, json, os, pwd, subprocess, sys, time
+import argparse, fcntl, hashlib, importlib.util, json, os, pwd, subprocess, sys, time
 from pathlib import Path
 from urllib.parse import quote
 
-ctx = json.loads(Path(os.environ["PISRS_BACKUP_CONTEXT"]).read_text())
-root = Path(os.environ["PISRS_REVIEW_CHECKOUT"])
+parser = argparse.ArgumentParser()
+parser.add_argument("context", type=Path)
+parser.add_argument("backup_dir", type=Path)
+parser.add_argument("checkout", type=Path)
+args = parser.parse_args()
+ctx = json.loads(args.context.read_text())
+root = args.checkout.resolve()
 spec = importlib.util.spec_from_file_location("drill", root / "ops/pisrs_restore_drill.py")
 D = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(D)
-out = Path(os.environ["PISRS_BACKUP_DIR"])
+out = args.backup_dir
 assert os.geteuid() == 0 and out.is_absolute() and not out.exists()
 os.umask(0o077)
 pg, q = ctx["pg_container"], ctx["qdrant_container"]

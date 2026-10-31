@@ -20,6 +20,46 @@ drill = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(drill)
 
 
+def capture_runbook():
+    text = (Path(__file__).parents[1] / "docs/pisrs-backup-restore.md").read_text()
+    return text.split("```python\n", 1)[1].split("\n```", 1)[0]
+
+
+def test_capture_uses_documented_positional_paths_with_stripped_environment(tmp_path, monkeypatch):
+    context = tmp_path / "context.json"
+    context.write_text(
+        json.dumps({"pg_container": "synthetic-pg", "qdrant_container": "synthetic-q"})
+    )
+    checkout = tmp_path / "checkout"
+    (checkout / "ops").mkdir(parents=True)
+    # Stop at the first source inspection. No Docker, lock or production file is accessed.
+    (checkout / "ops/pisrs_restore_drill.py").write_text(
+        "def inspect(identity):\n    raise RuntimeError('synthetic source boundary')\n"
+    )
+    target = tmp_path / "new-backup"
+    for name in ["PISRS_BACKUP_CONTEXT", "PISRS_REVIEW_CHECKOUT", "PISRS_BACKUP_DIR"]:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("sys.argv", ["capture_pisrs.py", str(context), str(target), str(checkout)])
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "umask", lambda _: 0)
+    namespace = {}
+    with pytest.raises(RuntimeError, match="synthetic source boundary"):
+        exec(compile(capture_runbook(), "capture_pisrs.py", "exec"), namespace)
+    assert namespace["ctx"] == json.loads(context.read_text())
+    assert namespace["root"] == checkout
+    assert namespace["out"] == target
+    assert not target.exists()
+
+
+def test_capture_missing_arguments_stops_before_source_access(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["capture_pisrs.py"])
+    for name in ["PISRS_BACKUP_CONTEXT", "PISRS_REVIEW_CHECKOUT", "PISRS_BACKUP_DIR"]:
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(SystemExit) as stopped:
+        exec(compile(capture_runbook(), "capture_pisrs.py", "exec"), {})
+    assert stopped.value.code == 2
+
+
 def test_bundle_checksum_rejects_unlisted_scope(tmp_path):
     (tmp_path / "SHA256SUMS").write_bytes(b"")
     with pytest.raises(ValueError, match="incomplete"):
