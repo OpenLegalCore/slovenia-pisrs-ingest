@@ -16,6 +16,7 @@ from pisrs_ingest.catalog_provenance import (
     _source,
 )
 from pisrs_ingest.config import load_settings
+from pisrs_ingest.locking import ApplicationLock
 from pisrs_ingest.models import Act
 from pisrs_ingest.postgres import ACT_CATALOG_UPSERT, ACTS_UPSERT
 
@@ -158,12 +159,17 @@ def test_cli_boundary_default_readonly_and_explicit_apply(tmp_path, monkeypatch,
     def operation(*args, **kwargs):
         calls.append(kwargs)
         if kwargs["apply"]:
+            kwargs["runtime_guard"].verify(object())
             kwargs["before_write"](plan)
         return plan
 
     monkeypatch.setattr(cli, "PisrsClient", Source)
     monkeypatch.setattr(cli, "catalog_provenance", operation)
     monkeypatch.setattr(cli, "PostgresDatabase", lambda *a: object())
+    monkeypatch.setattr(cli, "verify_runtime", lambda *_: "reviewed fixture")
+    monkeypatch.setattr(cli, "verify_lock", lambda *_: None)
+    monkeypatch.setattr(cli, "CatalogApplicationLock", ApplicationLock)
+    monkeypatch.setattr(cli.RuntimeGuard, "verify", lambda *_: None)
     for name in [
         "QdrantStore",
         "EmbeddingClient",
@@ -189,6 +195,9 @@ def test_apply_requires_write_permission_and_holds_existing_lock(tmp_path, monke
     from pisrs_ingest.locking import ApplicationLock
 
     env = environment(tmp_path)
+    monkeypatch.setattr(cli, "verify_runtime", lambda *_: "reviewed fixture")
+    monkeypatch.setattr(cli, "verify_lock", lambda *_: None)
+    monkeypatch.setattr(cli, "CatalogApplicationLock", ApplicationLock)
     args = ["catalog-sync", "--apply", "--expect-plan", "a" * 64, "--confirm-active-catalog-code"]
     assert cli.main(args, env) == cli.EXIT_CONFIG
     env["PISRS_ALLOW_WRITES"] = "1"

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 import pytest
@@ -17,7 +18,9 @@ from psycopg.types.json import Jsonb
 from pisrs_ingest import catalog_provenance as operation
 from pisrs_ingest import cli
 from pisrs_ingest.catalog_provenance import CatalogScopeError, catalog_provenance
+from pisrs_ingest.catalog_runtime import RuntimeGuard
 from pisrs_ingest.client import PisrsClient
+from pisrs_ingest.locking import ApplicationLock
 from pisrs_ingest.postgres import ACT_CATALOG_UPSERT, ACTS_UPSERT, PostgresDatabase
 
 
@@ -210,6 +213,12 @@ def test_full_recorded_scope_atomicity_idempotency_and_cli_boundary(
     case, monkeypatch, tmp_path, capsys
 ):
     database, acts, replay, untouched = case
+    # Identity verification itself is covered by the dedicated isolated guard tests.
+    guard = RuntimeGuard(SimpleNamespace(database_dsn=database.dsn), object(), object())
+    monkeypatch.setattr(RuntimeGuard, "verify", lambda *_: None)
+    monkeypatch.setattr(cli, "verify_runtime", lambda *_: object())
+    monkeypatch.setattr(cli, "verify_lock", lambda *_: None)
+    monkeypatch.setattr(cli, "CatalogApplicationLock", ApplicationLock)
     before, sequences_before = snapshot(database)
     protected_before = protected(database)
     checkpoint = tmp_path / "checkpoint.json"
@@ -221,11 +230,23 @@ def test_full_recorded_scope_atomicity_idempotency_and_cli_boundary(
     assert snapshot(database) == (before, sequences_before)
 
     with pytest.raises(CatalogScopeError, match="no longer matches"):
-        catalog_provenance(database, acts, "pisrs_catalog_test", apply=True, expected_plan="0" * 64)
+        catalog_provenance(
+            database,
+            acts,
+            "pisrs_catalog_test",
+            apply=True,
+            runtime_guard=guard,
+            expected_plan="0" * 64,
+        )
     assert snapshot(database) == (before, sequences_before)
     with pytest.raises(CatalogScopeError, match="empty"):
         catalog_provenance(
-            database, [], "pisrs_catalog_test", apply=True, expected_plan=plan.sha256
+            database,
+            [],
+            "pisrs_catalog_test",
+            apply=True,
+            runtime_guard=guard,
+            expected_plan=plan.sha256,
         )
     with pytest.raises(CatalogScopeError, match="identity sets"):
         catalog_provenance(database, acts[:-1], "pisrs_catalog_test")
@@ -234,7 +255,12 @@ def test_full_recorded_scope_atomicity_idempotency_and_cli_boundary(
         blocker.execute("LOCK TABLE pisrs.acts IN ROW EXCLUSIVE MODE")
         with pytest.raises(LockNotAvailable):
             catalog_provenance(
-                database, acts, "pisrs_catalog_test", apply=True, expected_plan=plan.sha256
+                database,
+                acts,
+                "pisrs_catalog_test",
+                apply=True,
+                runtime_guard=guard,
+                expected_plan=plan.sha256,
             )
     assert snapshot(database) == (before, sequences_before)
 
@@ -252,7 +278,12 @@ def test_full_recorded_scope_atomicity_idempotency_and_cli_boundary(
     monkeypatch.setattr(operation, "_read", corrupt_postflight)
     with pytest.raises(CatalogScopeError, match="rolling back"):
         catalog_provenance(
-            database, acts, "pisrs_catalog_test", apply=True, expected_plan=plan.sha256
+            database,
+            acts,
+            "pisrs_catalog_test",
+            apply=True,
+            runtime_guard=guard,
+            expected_plan=plan.sha256,
         )
     monkeypatch.setattr(operation, "_read", original_read)
     assert snapshot(database) == (before, sequences_before)
@@ -265,7 +296,12 @@ def test_full_recorded_scope_atomicity_idempotency_and_cli_boundary(
     drifted = snapshot(database)
     with pytest.raises(CatalogScopeError, match="no longer matches"):
         catalog_provenance(
-            database, acts, "pisrs_catalog_test", apply=True, expected_plan=plan.sha256
+            database,
+            acts,
+            "pisrs_catalog_test",
+            apply=True,
+            runtime_guard=guard,
+            expected_plan=plan.sha256,
         )
     assert snapshot(database) == drifted
     with database.connect() as c:
@@ -332,11 +368,23 @@ def test_full_recorded_scope_atomicity_idempotency_and_cli_boundary(
 
     again = catalog_provenance(database, acts, "pisrs_catalog_test")
     assert not any(again.changes.values())
-    catalog_provenance(database, acts, "pisrs_catalog_test", apply=True, expected_plan=again.sha256)
+    catalog_provenance(
+        database,
+        acts,
+        "pisrs_catalog_test",
+        apply=True,
+        runtime_guard=guard,
+        expected_plan=again.sha256,
+    )
     assert snapshot(database) == (after, sequences_after)
     with pytest.raises(CatalogScopeError, match="no longer matches"):
         catalog_provenance(
-            database, acts, "pisrs_catalog_test", apply=True, expected_plan=plan.sha256
+            database,
+            acts,
+            "pisrs_catalog_test",
+            apply=True,
+            runtime_guard=guard,
+            expected_plan=plan.sha256,
         )
 
     # Demonstrate why the active-code acknowledgment is necessary, using the old SQL.

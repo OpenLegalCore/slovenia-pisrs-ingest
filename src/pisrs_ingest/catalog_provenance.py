@@ -11,6 +11,7 @@ from typing import Any
 
 from psycopg import sql
 
+from .catalog_runtime import RuntimeGuard
 from .client import PisrsClient
 from .models import Act
 from .postgres import PostgresDatabase
@@ -221,11 +222,17 @@ def catalog_provenance(
     apply: bool = False,
     expected_plan: str | None = None,
     before_write: Callable[[ProvenancePlan], None] | None = None,
+    runtime_guard: RuntimeGuard | None = None,
 ) -> ProvenancePlan:
     """Apply only a reviewed plan; caller supplies approval and the application lock."""
     _source(acts)  # Reject incomplete discovery before opening any write connection.
     if apply and (not expected_plan or len(expected_plan) != 64):
         raise CatalogScopeError("apply requires the reviewed dry-run plan SHA-256")
+    if apply and (
+        type(runtime_guard) is not RuntimeGuard
+        or database.dsn != runtime_guard.settings.database_dsn
+    ):
+        raise CatalogScopeError("apply requires verification of the active nightly and target")
     with (
         database.connect(read_only=not apply) as connection,
         connection.transaction(),
@@ -236,6 +243,8 @@ def catalog_provenance(
         cursor.execute("SET LOCAL statement_timeout='60s'")
         cursor.execute("SET LOCAL lock_timeout='1s'")
         if apply:
+            assert runtime_guard is not None
+            runtime_guard.verify(connection)
             cursor.execute(
                 "LOCK TABLE pisrs.act_sync_catalog,pisrs.acts IN SHARE ROW EXCLUSIVE MODE"
             )
@@ -245,6 +254,7 @@ def catalog_provenance(
             return plan
         if plan.sha256 != expected_plan:
             raise CatalogScopeError("reviewed plan no longer matches; no updates performed")
+        runtime_guard.verify(connection)
         if before_write is not None:
             before_write(plan)
         for table in TABLES:
@@ -279,4 +289,5 @@ def catalog_provenance(
                     )
                 if not valid:
                     raise CatalogScopeError("unapproved row drift; rolling back")
+        runtime_guard.verify(connection)
         return plan

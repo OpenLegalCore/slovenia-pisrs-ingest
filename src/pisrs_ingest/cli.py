@@ -10,6 +10,13 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 
 from .catalog_provenance import CatalogScopeError, catalog_provenance
+from .catalog_runtime import (
+    CatalogApplicationLock,
+    RuntimeGuard,
+    RuntimeProofError,
+    verify_lock,
+    verify_runtime,
+)
 from .checkpoint import CheckpointError, CheckpointStore
 from .client import PisrsClient
 from .config import (
@@ -50,7 +57,7 @@ def parser() -> argparse.ArgumentParser:
     catalog.add_argument(
         "--confirm-active-catalog-code",
         action="store_true",
-        help="operator attests approved seven-catalog production activation; old nightly undoes it",
+        help="acknowledge the seven-catalog activation requirement (automatic proof is mandatory)",
     )
     return result
 
@@ -66,12 +73,17 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
             require_external(settings)
             if args.apply:
                 require_writes(settings)
-                if not args.expect_plan or not args.confirm_active_catalog_code:
-                    raise ConfigError(
-                        "apply requires --expect-plan and --confirm-active-catalog-code"
+                if not args.expect_plan:
+                    raise ConfigError("apply requires --expect-plan")
+                proof = verify_runtime(settings)
+                verify_lock()
+                with CatalogApplicationLock(settings.lock_path) as lock:
+                    return _catalog_sync(
+                        settings,
+                        apply=True,
+                        expected_plan=args.expect_plan,
+                        runtime_guard=RuntimeGuard(settings, lock, proof),
                     )
-                with ApplicationLock(settings.lock_path):
-                    return _catalog_sync(settings, apply=True, expected_plan=args.expect_plan)
             return _catalog_sync(settings, apply=False)
         if args.command == "nightly":
             require_external(settings)
@@ -89,7 +101,7 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return EXIT_CONFIG
-    except (CheckpointError, PipelineError, CatalogScopeError) as exc:
+    except (CheckpointError, PipelineError, CatalogScopeError, RuntimeProofError) as exc:
         print(f"operation blocked: {exc}", file=sys.stderr)
         return EXIT_RECONCILE_BLOCKED
     except Exception as exc:
@@ -98,7 +110,9 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
         return EXIT_ERROR
 
 
-def _catalog_sync(settings: Settings, *, apply: bool, expected_plan: str | None = None) -> int:
+def _catalog_sync(
+    settings: Settings, *, apply: bool, expected_plan: str | None = None, runtime_guard=None
+) -> int:
     assert settings.portal_base_url is not None and settings.portal_token is not None
     acts = PisrsClient(settings.portal_base_url, settings.portal_token).discover_acts()
 
@@ -112,6 +126,7 @@ def _catalog_sync(settings: Settings, *, apply: bool, expected_plan: str | None 
         apply=apply,
         expected_plan=expected_plan,
         before_write=announce,
+        runtime_guard=runtime_guard,
     )
     print(
         json.dumps(
