@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
 
+from .catalog_provenance import CatalogScopeError, catalog_provenance
 from .checkpoint import CheckpointError, CheckpointStore
 from .client import PisrsClient
 from .config import (
@@ -23,7 +24,7 @@ from .embeddings import EmbeddingClient
 from .locking import ApplicationLock, LockBusyError
 from .models import EMBEDDING_DIMENSIONS, EMBEDDING_MODEL
 from .pipeline import PipelineError, apply_reconciliation, plan_reconciliation, run_nightly
-from .postgres import PostgresBoundary
+from .postgres import PostgresBoundary, PostgresDatabase
 from .qdrant import QdrantStore
 
 EXIT_ERROR = 1
@@ -41,6 +42,16 @@ def parser() -> argparse.ArgumentParser:
     mode = reconcile.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="report changes without writes")
     mode.add_argument("--apply", action="store_true", help="apply payload-only changes")
+    catalog = subcommands.add_parser("catalog-sync", help="append state-catalog provenance only")
+    mode = catalog.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="default: plan without writes")
+    mode.add_argument("--apply", action="store_true", help="apply a separately approved plan")
+    catalog.add_argument("--expect-plan", help="SHA-256 from the reviewed dry-run")
+    catalog.add_argument(
+        "--confirm-active-catalog-code",
+        action="store_true",
+        help="operator attests approved seven-catalog production activation; old nightly undoes it",
+    )
     return result
 
 
@@ -51,6 +62,17 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
         settings = load_settings(config_command, environ)
         if args.command == "preflight":
             return _preflight(settings)
+        if args.command == "catalog-sync":
+            require_external(settings)
+            if args.apply:
+                require_writes(settings)
+                if not args.expect_plan or not args.confirm_active_catalog_code:
+                    raise ConfigError(
+                        "apply requires --expect-plan and --confirm-active-catalog-code"
+                    )
+                with ApplicationLock(settings.lock_path):
+                    return _catalog_sync(settings, apply=True, expected_plan=args.expect_plan)
+            return _catalog_sync(settings, apply=False)
         if args.command == "nightly":
             require_external(settings)
             require_writes(settings)
@@ -67,12 +89,42 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return EXIT_CONFIG
-    except (CheckpointError, PipelineError) as exc:
+    except (CheckpointError, PipelineError, CatalogScopeError) as exc:
         print(f"operation blocked: {exc}", file=sys.stderr)
         return EXIT_RECONCILE_BLOCKED
     except Exception as exc:
-        print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        detail = "" if args.command == "catalog-sync" else f": {exc}"
+        print(f"error: {type(exc).__name__}{detail}", file=sys.stderr)
         return EXIT_ERROR
+
+
+def _catalog_sync(settings: Settings, *, apply: bool, expected_plan: str | None = None) -> int:
+    assert settings.portal_base_url is not None and settings.portal_token is not None
+    acts = PisrsClient(settings.portal_base_url, settings.portal_token).discover_acts()
+
+    def announce(plan):
+        print(json.dumps({"phase": "before_write", **plan.summary()}, sort_keys=True), flush=True)
+
+    plan = catalog_provenance(
+        PostgresDatabase(settings.database_dsn),
+        acts,
+        settings.expected_database,
+        apply=apply,
+        expected_plan=expected_plan,
+        before_write=announce,
+    )
+    print(
+        json.dumps(
+            {
+                "mode": "apply" if apply else "dry-run",
+                **plan.summary(),
+                "applied_rows": sum(len(v) for v in plan.changes.values()) if apply else 0,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    return 0
 
 
 def _preflight(settings: Settings) -> int:
