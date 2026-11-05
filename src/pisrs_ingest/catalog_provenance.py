@@ -36,6 +36,13 @@ WARNING = (
     "APPLY requires separately approved activation of the seven-catalog code. "
     "The old four-catalog nightly overwrites and removes this provenance."
 )
+# Exact pg_get_functiondef output reviewed on the deployed catalog tables.
+# Do not normalize it: even an apparently harmless change needs another review.
+UPDATED_AT_FUNCTION = (
+    "CREATE OR REPLACE FUNCTION pisrs.set_updated_at()\n"
+    " RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\n"
+    "BEGIN\n  NEW.updated_at = now();\n  RETURN NEW;\nEND;\n$function$\n"
+)
 
 
 class CatalogScopeError(RuntimeError):
@@ -114,18 +121,44 @@ def _boundary(cursor: Any, expected_database: str, *, apply: bool) -> dict[str, 
     ):
         raise CatalogScopeError("expected ordinary catalog tables without RLS")
     # Reject unreviewed server-side write paths, rather than disabling triggers/rules.
-    custom = cursor.execute(
-        "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
+    triggers = cursor.execute(
+        "SELECT c.relname,t.tgname,t.tgtype,t.tgenabled,t.tgparentid=0 AS standalone,"
+        "pg_get_triggerdef(t.oid) AS definition,"
+        "pg_get_functiondef(t.tgfoid) AS function_definition "
+        "FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
         "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='pisrs' "
-        "AND c.relname=ANY(%s) AND NOT t.tgisinternal AND t.tgenabled<>'D' "
-        "UNION ALL SELECT r.rulename FROM pg_rewrite r "
+        "AND c.relname=ANY(%s) AND NOT t.tgisinternal ORDER BY c.relname,t.tgname",
+        (list(TABLES),),
+    ).fetchall()
+    for trigger in triggers:
+        table = trigger["relname"]
+        name = f"trg_pisrs_{table}_updated_at"
+        if (
+            trigger
+            != {
+                "relname": table,
+                "tgname": name,
+                "tgtype": 19,  # ROW | BEFORE | UPDATE; no other event or timing.
+                "tgenabled": "O",  # Never allow disabled, replica-only or ALWAYS execution.
+                "standalone": True,
+                "definition": (
+                    f"CREATE TRIGGER {name} BEFORE UPDATE ON pisrs.{table} "
+                    "FOR EACH ROW EXECUTE FUNCTION pisrs.set_updated_at()"
+                ),
+                "function_definition": UPDATED_AT_FUNCTION,
+            }
+            or table not in TABLES
+        ):
+            raise CatalogScopeError("catalog triggers or rules require separate review")
+    rules = cursor.execute(
+        "SELECT r.rulename FROM pg_rewrite r "
         "JOIN pg_class c ON c.oid=r.ev_class JOIN pg_namespace n ON n.oid=c.relnamespace "
         "WHERE n.nspname='pisrs' AND c.relname=ANY(%s)",
-        (list(TABLES), list(TABLES)),
+        (list(TABLES),),
     ).fetchall()
-    if custom:
+    if rules:
         raise CatalogScopeError("catalog triggers or rules require separate review")
-    return {"database": identity["database"], "tables": tables}
+    return {"database": identity["database"], "tables": tables, "triggers": triggers}
 
 
 def _read(cursor: Any) -> dict[str, list[dict[str, Any]]]:

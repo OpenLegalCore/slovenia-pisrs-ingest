@@ -10,8 +10,10 @@ from pisrs_ingest.catalog_provenance import (
     ENDPOINTS,
     METADATA,
     TABLES,
+    UPDATED_AT_FUNCTION,
     CatalogScopeError,
     ProvenancePlan,
+    _boundary,
     _plan,
     _source,
 )
@@ -52,6 +54,152 @@ def stored(source):
                 }
             )
     return result
+
+
+def reviewed_trigger(table):
+    name = f"trg_pisrs_{table}_updated_at"
+    return {
+        "relname": table,
+        "tgname": name,
+        "tgtype": 19,
+        "tgenabled": "O",
+        "standalone": True,
+        "definition": (
+            f"CREATE TRIGGER {name} BEFORE UPDATE ON pisrs.{table} "
+            "FOR EACH ROW EXECUTE FUNCTION pisrs.set_updated_at()"
+        ),
+        # Independent fixture: don't derive the reviewed body from the allowlist.
+        "function_definition": (
+            "CREATE OR REPLACE FUNCTION pisrs.set_updated_at()\n"
+            " RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\n"
+            "BEGIN\n  NEW.updated_at = now();\n  RETURN NEW;\nEND;\n$function$\n"
+        ),
+    }
+
+
+class BoundaryCursor:
+    def __init__(self, triggers, rules=(), *, apply=False):
+        self.results = iter(
+            [
+                {"database": "fixture", "read_only": "off" if apply else "on"},
+                [
+                    {
+                        "relname": t,
+                        "relkind": "r",
+                        "relrowsecurity": False,
+                        "relforcerowsecurity": False,
+                    }
+                    for t in TABLES
+                ],
+                triggers,
+                rules,
+            ]
+        )
+        self.statements = []
+
+    def execute(self, statement, params=None):
+        self.statements.append(statement)
+        self.result = next(self.results)
+        return self
+
+    def fetchone(self):
+        return self.result
+
+    def fetchall(self):
+        return self.result
+
+
+@pytest.mark.parametrize("tables", [(), ("acts",), ("act_sync_catalog",), TABLES])
+@pytest.mark.parametrize("apply", [False, True])
+def test_exact_updated_at_triggers_are_allowed_and_bound_to_plan(tables, apply):
+    triggers = [reviewed_trigger(t) for t in tables]
+    cursor = BoundaryCursor(triggers, apply=apply)
+    boundary = _boundary(cursor, "fixture", apply=apply)
+    assert boundary["triggers"] == triggers
+    assert all("t.tgenabled<>" not in s for s in cursor.statements)
+    assert reviewed_trigger("acts")["function_definition"] == UPDATED_AT_FUNCTION
+    source = acts()
+    plan = _plan(source, stored(source), boundary)
+    if triggers:
+        assert plan.sha256 != _plan(source, stored(source), {**boundary, "triggers": []}).sha256
+
+
+@pytest.mark.parametrize("table", TABLES)
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("relname", "unexpected"),
+        ("tgname", "unexpected"),
+        ("tgtype", 17),  # AFTER instead of BEFORE
+        ("tgtype", 18),  # statement instead of row
+        ("tgtype", 23),  # INSERT as well as UPDATE
+        ("tgenabled", "D"),
+        ("tgenabled", "R"),
+        ("tgenabled", "A"),
+        ("standalone", False),
+        ("definition", "unexpected"),
+        ("function_definition", "unexpected"),
+    ],
+)
+def test_changed_trigger_properties_are_rejected(table, field, value):
+    trigger = {**reviewed_trigger(table), field: value}
+    with pytest.raises(CatalogScopeError, match="triggers or rules"):
+        _boundary(BoundaryCursor([trigger]), "fixture", apply=False)
+
+
+@pytest.mark.parametrize("table", TABLES)
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("now()", "clock_timestamp()"),
+        ("RETURN NEW;", "NEW.naziv = 'changed'; RETURN NEW;"),
+        (" LANGUAGE plpgsql", " LANGUAGE plpgsql\n SECURITY DEFINER"),
+        (" LANGUAGE plpgsql", " LANGUAGE plpgsql\n SET search_path TO 'public'"),
+        (" LANGUAGE plpgsql", " LANGUAGE plpgsql\n IMMUTABLE"),
+        (" LANGUAGE plpgsql", " LANGUAGE plpgsql\n STRICT"),
+        (" LANGUAGE plpgsql", " LANGUAGE plpgsql\n PARALLEL SAFE"),
+        (" LANGUAGE plpgsql", " LANGUAGE plpgsql\n LEAKPROOF"),
+    ],
+)
+def test_changed_function_body_or_execution_properties_are_rejected(table, old, new):
+    trigger = reviewed_trigger(table)
+    trigger["function_definition"] = trigger["function_definition"].replace(old, new)
+    with pytest.raises(CatalogScopeError, match="triggers or rules"):
+        _boundary(BoundaryCursor([trigger]), "fixture", apply=False)
+
+
+@pytest.mark.parametrize("table", TABLES)
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("BEFORE UPDATE", "BEFORE UPDATE OF naziv"),
+        ("FOR EACH ROW", "FOR EACH ROW WHEN ((new.id > 0))"),
+        ("pisrs.set_updated_at()", "public.set_updated_at()"),
+        ("pisrs.set_updated_at()", "pisrs.set_updated_at('argument')"),
+    ],
+)
+def test_trigger_conditions_columns_function_and_arguments_are_rejected(table, old, new):
+    trigger = reviewed_trigger(table)
+    trigger["definition"] = trigger["definition"].replace(old, new)
+    with pytest.raises(CatalogScopeError, match="triggers or rules"):
+        _boundary(BoundaryCursor([trigger]), "fixture", apply=False)
+
+
+@pytest.mark.parametrize("enabled", ["O", "D"])
+def test_additional_user_triggers_are_rejected_even_when_disabled(enabled):
+    triggers = [reviewed_trigger(t) for t in TABLES]
+    triggers.append({**reviewed_trigger("acts"), "tgname": "unexpected", "tgenabled": enabled})
+    with pytest.raises(CatalogScopeError, match="triggers or rules"):
+        _boundary(BoundaryCursor(triggers), "fixture", apply=False)
+
+
+def test_rules_are_rejected_even_with_reviewed_triggers():
+    with pytest.raises(CatalogScopeError, match="triggers or rules"):
+        _boundary(
+            BoundaryCursor([reviewed_trigger(t) for t in TABLES], [{"rulename": "unexpected"}]),
+            "fixture",
+            apply=False,
+        )
 
 
 def test_plan_is_append_only_and_binds_all_identities_and_rows():
