@@ -1,27 +1,13 @@
-# PISRS — minimalna operativna pravila
+# PISRS — operativno stanje v času RESET (8. 11. 2026)
 
-To ni seznam razvojnih opravil. **Edino trenutno navodilo je [kanonični mandat](docs/PISRS-FULL-API-EXECUTION.md); [AGENTS.md](AGENTS.md) prepoveduje širjenje obsega.** Ne ponavljaj starega P1 pregleda zgolj zato, ker je naveden v dokumentaciji.
+**LASTNIKOV STOP.** Ne izvajati nadaljnjega razvoja, ponovnega kataloškega uvoza, besedilnega backfilla, embeddingov ali sprememb v produkciji. Aktualni mandat: [docs/PISRS-FULL-API-EXECUTION.md](docs/PISRS-FULL-API-EXECUTION.md); obvezna [AGENTS.md](AGENTS.md).
 
-## Produkcija
+- Dejanska nameščena izdaja po poročilu 7. 11.: `84b72b19054c3482408e154fc85ca6be41e156db`; prejšnja izdaja `94c5b2a` je ohranjena. Ne zamenjuj `main`, razvojne veje in aktivne izdaje.
+- Po poročilu je sistemski timer ACTIVE/enabled; novi urnik uporablja **`nightly --catalogs-only` ob 03:00 Europe/Ljubljana**. Ta način izvaja samo kataloge, **ne** besedil, embeddingov, Qdranta ali checkpointa. Prvi novi samodejni zagon ob zapisu še ni potrjen. Ne zaženi ročno namesto preverbe, če lastnik ni odobril.
+- Zaščiten profil `pisrs-ingest` je 7. 11. dokazano omogočil 13-kataloški API popis. Javni direktni portalni URL-ji z Meda so 8. 11. vrnili HTTP 407 (proxy); to je drug dostop in iz njega ni mogoče sklepati, da avtorizirani integracijski API ne deluje.
+- Pred kataloško migracijo je backup `/var/lib/pisrs-backups/backup-20261107T190129Z` prestal celotno zaporedno izolirano obnovo. **Ne razglašaj ga za postmigracijski backup.** Ohraniti dokaze in obnovitvene točke; ničesar ne brisati.
+- `appdb.pisrs` in `pisrs_current` sta produktivni odvisnosti Engine. Nobenih novih PG/Qdrant zapisov, deploya, premikov checkpointa ali prekinitve servisa na podlagi tega dokumenta.
+- Skrivnosti v `/etc/pisrs-ingest.env` ne kopirati v Git/Linear, ne spreminjati privilegijev ali obiti proxyja. `deploy/systemd/*.service` in `*.timer` sta **predlogi**, ne zanesljiv odčitek nameščene enote.
+- Rezultati in zgodovinski izvajalski postopki so ohranjeni v Git zgodovini, predvsem mandat pred resetom na `8bfd8fc`. Pred novo izvedbo veljajo le zahteve uradni API → PG mapping → GAP → lastnikova odobritev.
 
-- Dejanska namestitev je na Medu; datoteke pod `deploy/systemd/` so **predloge**, ne dokaz stanja. Stari nightly ob 03:00 Europe/Ljubljana ostaja aktiven, dokler ne bo ločeno odobren varen preklop. Neaktivni oneshot servis med zagoni je normalen.
-- `/etc/pisrs-ingest.env` je zaščiten; skrivnosti se ne berejo v izpis ali shranjujejo v Git/Linear. Pregledani servisni uporabnik: `pisrs-ingest`. Za dovoljen enkratni bralni API korak glej mandat in veljavno odobritev.
-- Ne uporabljaj `nightly`, `reconcile --apply`, `catalog-sync --apply` ali produkcijskega `systemctl start` kot diagnostike. `preflight` ni nadomestilo za polni katalog; `catalog-sync --dry-run` ni 13-zbirčni popis.
-- **Za branje**: en namenski merjeni pregled, samo potrebne SELECT/API GET, brez nepotrebnih ponovitev, izvoza vsebine, velikih snapshotov in nove testne infrastrukture. `PASS` se nanaša samo na res izveden obseg.
-
-## Edini produkcijski prehod (ločena odobritev)
-
-Za odobreno kataloško nadgradnjo uporabi `catalog-import --apply --expect-identities SHA256`.
-Privzeti `catalog-import` je dry-run; odtis vključuje identitete in provenienco vseh 13 zbirk.
-`nightly --catalogs-only` uporablja iste adapterje in pravi aplikacijski zaklep, vendar ne
-prenaša besedil, ne spreminja Qdranta ali checkpointa ter ne odpira embedding odjemalca.
-Ta izrecni način je potreben za urnik pod mejo 0 embedding klicev; obdelava državnih besedil
-se nadaljuje šele z ločeno odločitvijo za polni nightly. Samodejna lokalna besedilna pot je
-izključena do potrditve uradne poti; lokalni HTTP 404 ni dokaz neobstoja dokumenta.
-
-1. Pregledan nespremenljiv kandidat + aktualen vir→PG diff + izmerjena količina/stroški in združljivost s starim nightlyjem; brez tega HOLD.
-2. Pred odobrenim zapisom: dejanski lock/odločitev o sočasnem nightlyju, sveža skupaj obnovljiva PG/Qdrant/checkpoint zaščita, preizkušen povratek in potrjeno izvajalno okno. Ne uporabljaj 16-GiB praga za običajne bralne operacije; ta meja izvira iz sočasnega backupa+izolirane obnove.
-3. Po **posebni** odobritvi migracija in paketna sinhronizacija, brez prekinitve Engine povezljivosti; sledijo source→PG→Qdrant readback, checkpoint ter dejanski naslednji timer-triggered nightly.
-4. Po prvem podatkovnem zapisu **ne** zaganjaj starega štirikataloškega nightlyja kot preprostega rollbacka: lahko odstrani novo provenienco. Povratek podatkov mora uporabiti združljivo povratno točko, ne samo stare kode.
-
-**Prepovedano:** širitev privilegijev na slepo, `docker prune`, brisanje neznanih datotek, posegi v `olc-engine`/`case-law-ingest`, nova platforma za deployment/test/monitoring.
+**Dovoljena dejavnost v trenutnem režimu:** branje, preverjanje in konsolidacija obstoječih virov/dokumentacije, brez produkcijskih dejanj. Brez ponavljanja starih izvedbenih promptov.
