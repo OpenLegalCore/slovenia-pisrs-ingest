@@ -71,3 +71,11 @@ Ne more se zaključiti po dokumentaciji ali testih, če obstaja nadaljnje neodvi
 - **Stanje:** delujoči stari nightly po izpisu 7. 11.; popolna integriteta v tem trenutku UNKNOWN; razvojni sedemkataloški kandidat obstaja; EU/LS in poln history/text backfill niso zaključeni. A1–A9 še niso PASS.
 - **Dovoljene spremembe s to konsolidacijo:** zgolj dokumentacija na obstoječi razvojni veji in datirane opombe na obstoječih Linear nalogah; brez produkcijskih sprememb.
 - **Naslednji korak:** enoten razvoj F1–F3 v obstoječem repozitoriju na osnovi tega dokumenta, po samostojni preverbi trenutnega Git stanja in brez posega v produkcijo.
+
+
+### 2026-11-07 — CONSOLIDATION readback
+
+- **Dokumentacija:** kanonični dokument objavljen na obstoječi razvojni veji (prvi docs commit `4fd8de5991e6348a38b6c40d84a23e8869459ac2`); `PROJECT_GOALS.md` povezan (commit `ee1f00dd57ede91193ebdd2e799b3fe09593beb6`); GitHub readback dokumenta in povezave PASS.
+- **Linear:** opisi **OLC-77, OLC-79, OLC-80, OLC-85, OLC-82 in OLC-83** dopolnjeni z datirano fazo in povezavo; zgodovina in obstoječi statusi ohranjeni. Projektni status update [7. 11. 2026](https://linear.app/openlegalcore/project/pisrs-complete-source-to-index-synchronization-b47e7deb7c78/activity#project-update-44fd3ace) označen **atRisk** (podatkovna sinhronizacija ni dokončana).
+- **Dejanske produkcijske spremembe:** **0**; GitHub spremembe samo dokumentacija, Linear samo evidence. Lokalno na Medu nič ustvarjeno ali odstranjeno, disk delta **ni merjena**.
+- **Naslednja odobrena naloga:** obstoječi lokalni Codex po potrebi prejme **en** razvojni mandat za faze F1–F3 po tej specifikaciji; pred kakršnimkoli produkcijskim pisanjem, aktivacijo, embedingi ali posegom v druge repozitorije mora obstajati ločena odobritev. Novi agent začne z branjem tega dokumenta in relevantnega zadnjega Codex izpisa.
