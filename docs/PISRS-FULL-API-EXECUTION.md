@@ -16,7 +16,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 | F1 Vsi katalogi | [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80) | Razvoj za 13 zbirk in aditivna shema pripravljen; uradne identitete 7. 11. zajete, diff proti PG izmerjen |
 | F2 Besedila + zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) | Pretočni RS/LS NPB kandidat in 404 obravnava preverjena; polni backfill NOT_RUN |
 | F3 Integriteta/Qdrant | [OLC-85](https://linear.app/openlegalcore/issue/OLC-85) | Restart testi PASS; 352 NULL act_id, 44 starih datumskih razlik, provenienca in poln Qdrant parity še odprti |
-| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; uradne identitete izmerjene, potrebna sveža povratna zaščita |
+| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; uradne identitete izmerjene, svež backup/restore 7. 11. NOT_RUN zaradi RAM varovalke |
 | F5 Čiščenje/predaja | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Po A1–A9; samo lastni odvečni artefakti + dokumentiran handoff ločeni Engine seji |
 
 ## Trenutno stanje — obvezno preberi pred vsakim obratom
@@ -31,7 +31,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 
 **F4 dostop:** neprivilegirani kontekst je prej prejel HTTP 407; odobreni enkratni bralni zajem prek zaščitenega servisnega profila `pisrs-ingest` je 7. 11. uspel. Obstoječi razvojni `PisrsClient.discover_*` je zajel vseh 13 zbirk brez besedil in brez produkcijskih zapisov. Zasebni dokazni paket: `/tmp/pisrs-f4-live-20261107-wfVQjA/`; SHA-256 `SHA256SUMS` = `86eba81b0d677a652aab2caa4d383e67bcb676e4eb272f5b70f58fa2e8945434`.
 
-**Naslednji EDINI operativni korak:** pred odobritvijo produkcijskih podatkovnih sprememb pripraviti svežo, preverjeno PG+Qdrant+checkpoint povratno točko za točno izmerjen obseg. Brez samodejnega zapisa ali aktivacije.
+**Naslednji EDINI operativni korak:** v mirnem pomnilniškem oknu z najmanj 16 GiB `MemAvailable` izvesti obstoječi pregledani PG+Qdrant+checkpoint backup in izolirano obnovitev. Brez samodejnega podatkovnega zapisa ali aktivacije.
 
 ## Po zajemu: ena produkcijska pot
 
@@ -48,3 +48,9 @@ Na koncu vsebinskega obrata dodaj **eno največ 5-vrstično datirano posodobitev
 **Produkcija:** 0 zapisov, stari nightly/timer nespremenjena.
 **UNKNOWN:** popolnost besedil/zgodovine/Qdranta, dejanski obseg embeddingov in sveža povratna točka.
 **Naslednje:** sveža preverjena povratna točka pred ločeno odobrenim podatkovnim posegom.
+
+**7. 11. 2026, F4 povratna točka:** pred izvedbo `MemAvailable=6,51 GiB` (9,49 GiB pod obvezno mejo 16 GiB); swap praktično poln, PSI some/full avg10=0,68 %, avg60=0,31 %.
+**Preflight:** disk 770,8 GB na voljo; PISRS servis inactive/dead, timer active/waiting, naslednji zagon 8. 11. ob 03:00 CET.
+**Rezultat:** backup NOT_RUN, restore NOT_RUN, nova preverjena povratna točka UNKNOWN; obstoječi backup in produkcija nespremenjeni.
+**Blokada:** obstoječi izvajalnik zahteva >=16 GiB `MemAvailable` in PSI avg10/avg60 <1 % pred avtentikacijo; varovalka ni bila sproščena.
+**Naslednje:** eno mirno okno z >=16 GiB za obstoječi zaporedni backup/restore; brez samodejnega nadaljevanja.
