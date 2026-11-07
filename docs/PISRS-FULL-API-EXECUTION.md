@@ -1,114 +1,82 @@
-# PISRS — EDINI aktivni izvedbeni mandat in predaja
+# PISRS — KONSOLIDACIJA IN RESET OSNOV (8. 11. 2026)
 
-**Status: F4 KATALOŠKA NADGRADNJA PASS — 7. 11. 2026, 22:49 CET.** Ta dokument je edina aktualna evidenca dejanskega napredka. Za stalne meje in protidrift pravila glej [AGENTS.md](../AGENTS.md); za rezultate končnega sprejema [A1–A9](../ACCEPTANCE_TESTS.md). **To ni odobritev produkcijskega pisanja.**
+**STANJE: OWNER STOP / DESIGN RESET.** Lastnik je izrecno ustavil dotedanjo razvojno pot. Ta dokument je evidenca obstoječih dokazov in vrzeli, **ne** dovoljenje za izvajanje. Brez lastnikove nove izrecne odločitve: brez sprememb produkcije, kode, servisov, OpenAI klicev, besedilnega backfilla, novih Codex nalog ali samodejnega nadaljevanja predhodnih Linear nalog. Ohraniti obstoječo produkcijo in njene preverjene podatke. Zgodovinski dnevnik je v Git zgodovini do commita `8bfd8fc6759c558ac9f024097279faa97df08ea3` ter obstoječih Linear zapisih.
 
-## Cilj (nespremenljiv brez izrecne odločitve lastnika)
+## 1. Cilj, obseg in razmejitev sistemov
 
-Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 državnih katalogov, /npb, /predpis-eu, 3 lokalni /akt-ls/*, /npb-ls = **13 zbirk**, ustrezni /seznam, šifranti in besedila), vse dosegljive zgodovinske različice in izvirnike v obstoječem PostgreSQL ter pogodbeno pravilni Qdrant; zanesljiv nightly; neprekinjen Engine. Zunanji Uradni list/arhiv in dodatni sistemi niso avtomatičen obseg, če niso del PISRS API. Če API določene vsebine ne daje, označi dokazljivo omejitev namesto obljube 100 % izmišljenih besedil.
+**Lastnikov cilj:** popoln, dokazljiv inventar **dejansko dostopnega** uradnega PISRS API, njegova dokumentirana preslikava v obstoječi `appdb.pisrs`, najprej neodvisna hramba izvornih besedil in zgodovine v PostgreSQL, nato ločeno, merljivo in posebej odobreno ustvarjanje embeddingov v `pisrs_current`; varen nightly brez posega v OpenLegalCore Engine. Ne sklepati, da katalogni zapis že pomeni dostopno besedilo ali da spletni portal in uradni integracijski API ponujata enake storitve.
 
-**Izvedbena zahteva:** najkrajša pot do dejanskega vira→PG→Qdrant sprejema, ne nove platforme. Ohrani stare vektorje, ne ustvarjaj novih embeddingov brez odobritve. 2–4 ure je prednostni izvedbeni čas, ne potrjena prepustnost več kot 167.000 besedilnih HTTP zahtev.
+**Tri različne površine:**
+1. **Uradni integracijski API-PISRS:** [Swagger](https://pisrs.si/swagger), [navodila](https://pisrs.si/swagger/navodila); zahteva odobren API žeton. V tem projektu se uporablja `PisrsClient` (`requests`), brez brskalnika/Playwrighta.
+2. **Spletni portal PISRS:** uporabniška aplikacija in njeni opaženi `/api/rezultat/...`, `/api/datoteke/integracije/...` klici. Ti niso avtomatično del dokumentiranega integracijskega API-ja; njihove sheme, pogoji in programatska dosegljivost niso potrjeni.
+3. **OpenLegalCore:** PostgreSQL je trajna baza podatkov in izvirnikov, Qdrant pa izvedeni vektorski indeks. EUR-Lex oziroma zunanji zgodovinski arhivi niso samodejno vključeni v obseg PISRS API.
 
-## Ena fazna tabela
+**Temeljno pomanjkanje dosedanjega projekta:** pred implementacijo ni bila zaključena verzionirana matrika *endpoint → parametri/odziv/identitete → dostopnost besedila/zgodovine → konkretna PG tabela/stolpec → dokaz konsistence*. Obstaja preverjena implementacija dela kataloškega prenosa, ne pa dokazana popolnost vira→besedilo→zgodovina→shramba→indeks. Pri ponovnem začetku je treba to matriko dokazati **pred** nadaljnjim razvojem.
 
-| Faza | Obstoječe naloge | Stanje in prehod |
-| --- | --- | --- |
-| F0 Produkcija | [OLC-77](https://linear.app/openlegalcore/issue/OLC-77) | Zadnji polni nightly 7. 11. PASS; aktiviran kataloški nightly, prvi timer-zagon še NOT_RUN |
-| F1 Vsi katalogi | [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80) | Vseh 13 zbirk uvoženih; 300.875 EU/LS identitet in 31.785 dopolnjenih državnih provenance parov; identitetni readback PASS |
-| F2 Besedila + zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) | Državni /besedilo ni LS adapter; 3 lokalna HTML besedila in portalne različice potrjene, neposredni HTTP na Medu BLOCKED407; globalni obseg UNKNOWN |
-| F3 Integriteta/Qdrant | [OLC-85](https://linear.app/openlegalcore/issue/OLC-85) | Provenienca popravljena; vsi obstoječi Qdrant ID/payloadi/vektorji in PG besedilne tabele nespremenjeni; 352 NULL act_id in 44 starih datumskih razlik ostaja |
-| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Obnovitvena točka in skladnost pred posegom PASS; aditivna migracija, kataloški uvoz in aktivacija PASS; celotni A1–A9 še nedokončani |
-| F5 Čiščenje/predaja | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Po A1–A9; samo lastni odvečni artefakti + dokumentiran handoff ločeni Engine seji |
+## 2. Inventar uradnega API-ja — kaj vemo in česa ne
 
-## Trenutno stanje — obvezno preberi pred vsakim obratom
+Uradni [Swagger](https://pisrs.si/swagger) in [navodila](https://pisrs.si/swagger/navodila) navajajo **13 glavnih katalogov**. Pregled po skupinah (številke so uvožene kataloške identitete z dne 7. 11. 2026, ne število pridobljenih besedil):
 
-**Razvojni repozitorij/veja:** `OpenLegalCore/slovenia-pisrs-ingest`, `codex/pisrs-state-catalogs-20261031`. Aktivna pregledana koda: [84b72b1](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/84b72b19054c3482408e154fc85ca6be41e156db). Predhodni dokazi: [koda db0f969](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/db0f969e19c39fd4ce18599ad185f212b316cb6f), [F4 izmera 2a6ad19](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/2a6ad19aab7a2efbf32fdc3fd1fca81b0130a71f), [blokada 8511293](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/851129325e73eb2263b801631198a6cd9b5801ff). Vedno preberi dejanski HEAD, ne domnevaj.
+| Uradni endpoint(i) | Vir/pomen | Identiteta v kodi | Produkcijski rezultat | Besedilna pogodba |
+|---|---|---|---:|---|
+| `/predpis/register-predpisov` | Državni register | `register_id`, `moped_id` | skupaj 65.308 enoličnih državnih aktov v 7 zbirkah | katalog; ne neposredni HTML |
+| `/predpis/neveljavni-predpisi` | Neveljavni | ista državna identiteta | vključeno zgoraj | katalog |
+| `/predpis/obsoletni-in-konzumirani-predpisi` | Obsoletni/konzumirani | ista | vključeno zgoraj | katalog |
+| `/predpis/evidenca-normodajalcev` | Normodajalci | ista | vključeno zgoraj | katalog |
+| `/predpis/predpisi-v-pripravi` | V pripravi | ista | vključeno zgoraj | katalog |
+| `/predpis/drugi-splosni-in-posamicni-akti` | Drugi akti | ista | vključeno zgoraj | katalog |
+| `/predpis/splosni-akti-za-izvrsevanje-javnih-pooblastil` | Javnopooblastilni akti | ista | vključeno zgoraj | katalog |
+| `/npb` | Državne NPB različice | `text_id` | 71.649 | `/besedilo/{idZbirkaElement}` je dokumentiran za državna NPB |
+| `/predpis-eu` | Povezani EU akti | CELEX | 80.128 | iz samega kataloga ni dokazan dostop do polnih EU besedil |
+| `/akt-ls/veljavni-akti` | Lokalni veljavni | `LS_ACT` id, `mopedPlusId` | skupaj 125.012 lokalnih aktov v 3 zbirkah | katalog |
+| `/akt-ls/neveljavni-akti` | Lokalni neveljavni | ista lokalna identiteta | vključeno zgoraj | katalog |
+| `/akt-ls/akti-v-pripravi` | Lokalni v pripravi | ista | vključeno zgoraj | katalog |
+| `/npb-ls` | Lokalna NPB | `LS_NPB` id | 95.735 | **uradni Swagger ne navaja enakovrednega lokalnega besedilnega endpointa** |
 
-**Produkcija:** Medo, aktivna izdaja `84b72b19054c3482408e154fc85ca6be41e156db`, `nightly --catalogs-only`; timer ACTIVE/enabled, servis inactive, naslednji 8. 11. 03:00 CET. Zadnji polni nightly 7. 11. 03:00:07–03:02:59 CET exit 0; nova izdaja še nima timer-triggered zagona. Pred migracijo se je celotna produkcija ujemala s preverjeno obnovitveno točko 7. 11. Migracija je dodala tri tabele; uvozil se je katalog vseh 13 zbirk. PG: 65.308 državnih aktov, 71.649 NPB/različic, 13.641.999 blokov, 281.338 chunkov; novih 300.875 EU/LS identitet in 130.601 državnih raw/provenance variant, 0 lokalnih besedil. Vseh devet drugih prvotnih tabel (tudi NPB) ima enak celotni vrstični hash; celotni Qdrant ID/payload/vektorski hash ter 62 bajtov checkpointa so nespremenjeni. Stara izdaja ohranjena. Engine in povezovalni cilji niso bili spremenjeni.
+**Dodatne uradne operacije:** sedem `/predpis/.../seznam`, tri `/akt-ls/.../seznam`, `/sifranti`, `/sifranti/{id}`, `/besedilo/{idZbirkaElement}` in zahtevek za API dostop. `/seznam` ima v kodi status ločenih opažanj; semantika in dokaz popolnosti še nista zaključena. Šifranti in celotna polja/filtri/DTO, napake, paginacija, izvozi in osveževanje **niso dokumentirani v preverjeni projektni preslikovalni matriki**. Navodila opisujejo običajen prikaz največ 1.000 zadetkov na stran in dnevno osveževanje; dejanska implementirana paginacija je ločena stvar, ki zahteva dokaz.
 
-**Sveži vir (7. 11., 13:39–13:44 CET):** 65.308 državnih aktov, 71.649 NPB, 80.128 EU CELEX, 125.012 LS aktov in 95.735 LS NPB. Proti produkcijskemu PG posnetku istega dne (12:45 CET): obe državni identitetni množici PASS (0 manjkajočih/odvečnih); pred nadgradnjo **300.875 EU/LS kataloških identitet** ni imelo ciljne tabele in je **31.785 parov državne provenience** manjkalo v obeh kataloških tabelah. Po uvozu so vse identitete in pari prisotni, primerjava konkretnih množic PASS. Sveži uvoz 22:35–22:41 CET ima enak identitetni/provenienčni odtis kot popis 13:39–13:44 CET; to ne dokazuje enakosti vseh besedil. PG ima 352 NULL `act_id`; po svežih državnih identitetah ima vsak enega SOP kandidata. Pri LS NPB je 6.744 nerešenih povezav (937 več kandidatov, 5.390 brez kandidata, 417 brez SOP). Besedila, zgodovinska popolnost, pokritost novih vsebin v Qdrantu in potrebni embeddingi ostajajo UNKNOWN; kataloške identitete niso besedila.
+**Ne mešati ID-jev:** državna `text_id`, lokalna `LS_NPB` identiteta, lokalni `MP_...` in datotečni `FILE_ID` niso enakovredne vrednosti. Posredovanje `LS_NPB_ID` v državne `/besedilo/{id}` je bila napačna predpostavka (60/60 preverjenih lokalnih zahtev HTTP 404, državni kontrolni 200).
 
-**Razvojni dokazi:** 179 PASS / 3 SKIPPED v izoliranem PG; GitHub CI [42367397121](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/actions/runs/42367397121) in [42367525951](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/actions/runs/42367525951) PASS. Regresija ponovitve štirih kataloških transakcijskih mej PASS. Masovni besedilni backfill ni preizkušen; novejši testi in produkcijska migracija so navedeni v zadnji posodobitvi spodaj.
+**Portalno odkritje — kvalificiranost UNKNOWN:** Codex je prek portalnega/brskalniškega diagnostičnega branja opazil `/api/rezultat/zbirka/id/{MP_ID}`, `/api/rezultat/neuradno-precisceno-besedilo/{LS_NPB_ID}/details` in objavljene `/api/datoteke/integracije/{FILE_ID}`. Trije identitetno povezani HTML primeri so imeli 11.262, 1.150 in 78.539 znakov, vendar SHA-256 meri prebrani `document.body.innerText`, **ne izvornih bajtov**. Neposredni terminalski javni zahtevki na Medu za te naslove so vrnili **HTTP 407** (proxy), medtem ko je zaščiteni servisni profil že omogočil uradni kataloški API zajem. To **ne dokazuje** neuspeha vseh API operacij in **ne kvalificira** novega samodejnega portalnega adapterja. Brskalnik ni del produkcijskega ingesta. Glej dokazni paket `/tmp/pisrs-local-text-20261108/RESULT.json`, obstoječi Linear OLC-82.
 
-**F4 dostop:** neprivilegirani kontekst je prej prejel HTTP 407; odobreni enkratni bralni zajem prek zaščitenega servisnega profila `pisrs-ingest` je 7. 11. uspel. Obstoječi razvojni `PisrsClient.discover_*` je zajel vseh 13 zbirk brez besedil in brez produkcijskih zapisov. Zasebni dokazni paket: `/tmp/pisrs-f4-live-20261107-wfVQjA/`; SHA-256 `SHA256SUMS` = `86eba81b0d677a652aab2caa4d383e67bcb676e4eb272f5b70f58fa2e8945434`.
+## 3. Pregled dejanske implementacije in podatkovne preslikave
 
-**Embeddingi (7. 11., 21:48–21:51 CET):** 276.368 aktivnih PG chunkov se po ID/hash/model/dimenzija ujema z obstoječimi Qdrant točkami, zato jih trenutni kandidat ponovno uporabi; 20 vzorčenih vektorjev ima 3.072 dimenzij. Veljavni `make_chunks` je enak stari izdaji. Pri 95.735 kataloških LS NPB je vseh 60 naključnih vzorcev iz štirih starostnih skupin na `/besedilo/{id}` vrnilo 404; državni pozitivni kontrolni dokument 200. Samodejni LS besedilni backfill je zdaj izključen; prazna aditivna tabela zanj ostaja, potreba in kontrakt za LS/EU indeks sta UNKNOWN. Cena vseh novih vsebin in bajti prenosov UNKNOWN, ne 0 USD. Lokalni tokenizer `cl100k_base` PASS; dokazni manifest `/home/rajko/.local/state/pisrs-embedding-cost-20261107T2052Z/SHA256SUMS`, SHA-256 `005859c4d767671f9c2ef55d4c4a935e161ad30500ebfff1ac77ddfe4b6413f6`.
+| Vir / korak | Dejanska implementacija in ciljna shramba | Ocena |
+|---|---|---|
+| Sedem državnih katalogov | `PisrsClient.discover_acts` → `pisrs.acts`, `pisrs.act_sync_catalog` (izvorni JSON), `pisrs.state_raw_variants` (po endpointu) | identitete/provenienca po 7. 11. **PASS**; polja/DTO in semantika popolnosti **ni celovito validirana** |
+| Državni NPB seznam | `discover_npbs` → `pisrs.npb_catalog` (`raw_item`) | 71.649 identitet; sam katalog ne dokazuje besedil |
+| Državno besedilo | `GET /besedilo/{text_id}` → `pisrs.act_text_versions` (`html`, `plain_text`, `raw_meta`), `pisrs.act_text_blocks`; `embedding_chunks` | stari podatki obstajajo; zgodovinska popolnost in tekstovna zvestoba niso dokazani |
+| EU register | `discover_eu_acts` → `pisrs.source_catalog_items` (`namespace=EU`, CELEX, `raw_by_endpoint`) | 80.128 ID; EU besedila/izvirniki **niso shranjeni s tem uvozom** |
+| Lokalni akti | `discover_local_acts` → `pisrs.source_catalog_items` (`LS_ACT`, `moped_plus_id`, EDA/SOP, JSON) | 125.012 ID; aktovih izvirnikov/zgodovine uvoz ne dokazuje |
+| Lokalni NPB katalog | `discover_local_npbs` → `pisrs.source_catalog_items` (`LS_NPB` + status povezave) | 95.735 ID; 88.991 enoličnih SOP povezav, 6.744 nerešenih |
+| Lokalni NPB besedilni kandidat | `pisrs.source_text_versions` (en zapis na `LS_NPB` id: HTML, plain text, blocks, articles) | tabela nameščena, **0 uvoženih besedil**; ne podpira EU/LS_ACT izvirnih datotek niti celovitega manifestiranja originalnih bajtov; napačen avtomatski lokalni `/besedilo` odstranjen |
+| Semantični indeks | `pisrs.embedding_chunks` → OpenAI `text-embedding-3-large` 3072 → Qdrant `pisrs_current`; UUID po kolekciji/text ID/chunk indeksu | obstoječih 281.338 Qdrant točk ohranjenih; **lokalni/EU vektorji niso del sedanjega podatkovnega kontrakta** |
+| Zagon | `nightly --catalogs-only` s sistemskim timerjem | aktiviran 7. 11.; prvi dejanski novi timer-triggered zagon ob zapisu tega reseta **NOT_VERIFIED** |
 
-**Aktualna odobritev:** lastnik je odobril aditivno migracijo, začetni uvoz vseh 13 katalogov in usklajen preklop urnika z mejo 0 novih embedding klicev. Izvedba je vezana na nespremenjeno produkcijsko stanje glede na preverjeni backup 7. 11. Kataloški način ne izvaja besedil, Qdranta ali checkpointa; polni besedilni nightly in lokalna besedilna pot ostajata izven tega posega.
+**Kritične omejitve obstoječe sheme:** ni potrjenega celotnega slovarja vseh PISRS polj → vseh PG stolpcev; ni pregledane strategije shranjevanja originalnih datotečnih bajtov, MIME/hash/povezave in različic za vse vrste; ni dokazanega vira in verzioniranja za celotno zgodovino. `source_text_versions` se po trenutni SQL omejitvi nanaša le na `LS_NPB`. PostgreSQL mora biti samostojen arhiv; Qdrant šele naknadno izpeljan indeks. Ta **ciljni dvostopenjski princip je odločitev za ponovno načrtovanje, ne že dokončana implementacija**.
 
-## Po zajemu: ena produkcijska pot
+## 4. Rezultati, ki ostanejo veljavni, in odprta vprašanja
 
-Po dejanskem izmerjenem viru in stroških pripravi **en** pregledan produkcijski korak: aktualen PG+Qdrant+checkpoint backup in izolirano obnovitev, aditivna migracija, usklajen preklop brez ponovnega zagona starega štirikataloškega nightlyja po podatkovnem zapisu, omejeni idempotentni RS/LS backfill, poln definiran vir→PG→Qdrant preizkus ter A1–A9. Odobreni kataloški prehod je izveden; nadaljnji besedilni backfill, act-link in plačljivi embeddingi ostajajo izven tega posega. Celotni sprejem šele po dejanskem timer-triggered nightlyju, dokončanih podatkovnih preverbah in tehničnem handoffu Engine seji.
+**V dokumentiranem produkcijskem posegu 7. 11. 2026 (preverba dokazov iz lokalnega Codexa, ne neposreden dostop tega klepeta do Meda):**
+- Aktivna izdaja `84b72b19054c3482408e154fc85ca6be41e156db`; aditivna migracija PASS; vseh **300.875 novih EU/LS kataloških identitet** in **31.785 državnih provenienčnih parov** (0 manjkajočih proti istodnevnemu popisu). `state_raw_variants` = 130.601.
+- 65.308 državnih aktov, 71.649 državnih NPB. Vsa obstoječa 281.338 Qdrant ID/payload/vektor množica je po poročilu izvajalnika nespremenjena; 62-bajtni checkpoint nespremenjen; druge stare PG tabele prav tako. 0 novih besedilnih/embedding klicev, 0 USD embeddingov.
+- Pred migracijo usklajen backup `/var/lib/pisrs-backups/backup-20261107T190129Z` in zaporedna izolirana obnova PASS (takratnih 11 tabel, 14.823.681 vrstic, 281.338 vektorjev, checkpoint); to **ni samodejen dokaz nove obnovljive točke po migraciji**.
+- Kandidat je prestal lokalne teste in CI `42415254706`, vendar CI sam ne potrjuje celovitega PISRS podatkovnega kontrakta.
 
-## Kratka trajna predaja (ne dnevniški roman)
+**Nedokazano ali odprto:** vsaka shema/parameter/DTO/izvoz/šifrant uradnega API; zakaj so različna polja/relacije izvirnika v PG ohranjena ali izpuščena; dejansko dostopna in zajeta besedila po virih; vsa zgodovina; 352 državnih `act_text_versions.act_id IS NULL`; 6.744 lokalnih NPB povezav; 44 starih datumskih razlik in 14 zgodovinskih chunk anomalij; celoten vir→PG→Qdrant sprejem A1–A9; prvi avtomatski zagon `nightly --catalogs-only`; veljaven način za programski lokalni prenos ob 407. **Ni dokazano**, da 300.875 identitet pomeni enako število besedil ali novih embeddingov. Skupna cena novih embeddingov je zato UNKNOWN; obstoječe ustrezne vektorje ni treba plačati ponovno.
 
-Na koncu vsebinskega obrata dodaj **eno največ 5-vrstično datirano posodobitev**: kaj je bilo izvedeno (dokaz), kaj se je spremenilo v produkciji, kaj ostaja UNKNOWN/BLOCKED in en naslednji korak. Obstoječi Linear issue posodobi samo za spremembo njegovega dejanskega statusa/ugotovitve. **Brez novega projekta, podvojene dokumentacije, novih nalog ali dodatnega pregleda zaradi samega pregleda.**
+**Meje dostopa:** GitHub in Linear hranita verzionirane rezultate in poročila Codexa. Ta dokument ne nadomešča dejanske live hostske kontrole; za gostiteljske trditve je izvor dokumentirano poročilo Codexa. Izven že odobrenega obsega se brez lastnika ne opravljajo novi zaščiteni API zajemi, podatkovni popravki ali prenosi.
 
-**Arhiv:** poln historični dnevnik in vse dotedanje odločitve ostajajo v nespremenljivi Git zgodovini pri [8511293](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/blob/851129325e73eb2263b801631198a6cd9b5801ff/docs/PISRS-FULL-API-EXECUTION.md) ter v že obstoječih Linear issues. Staro besedilo **ni** navodilo za ponovitev preteklih faz.
+## 5. RESET — pogoji pred kakršnokoli novo izvedbo
 
-**7. 11. 2026, F4:** odobreni bralni zajem 13 zbirk in točen API↔PG diff PASS; dokazni SHA-256 `86eba81b0d677a652aab2caa4d383e67bcb676e4eb272f5b70f58fa2e8945434`.
-**Razlike:** 0 državnih identitet, 300.875 EU/LS kataloških identitet brez ciljne tabele, 31.785 manjkajočih parov državne provenience; 352 NULL `act_id`, 6.744 nerešenih LS NPB povezav.
-**Produkcija:** 0 zapisov, stari nightly/timer nespremenjena.
-**UNKNOWN:** popolnost besedil/zgodovine/Qdranta, dejanski obseg embeddingov in sveža povratna točka.
-**Naslednje:** sveža preverjena povratna točka pred ločeno odobrenim podatkovnim posegom.
+**Zaporedje za ponovno presojo, ne avtomatski seznam novih nalog:**
 
-**7. 11. 2026, F4 povratna točka:** pred izvedbo `MemAvailable=6,51 GiB` (9,49 GiB pod obvezno mejo 16 GiB); swap praktično poln, PSI some/full avg10=0,68 %, avg60=0,31 %.
-**Preflight:** disk 770,8 GB na voljo; PISRS servis inactive/dead, timer active/waiting, naslednji zagon 8. 11. ob 03:00 CET.
-**Rezultat:** backup NOT_RUN, restore NOT_RUN, nova preverjena povratna točka UNKNOWN; obstoječi backup in produkcija nespremenjeni.
-**Blokada:** obstoječi izvajalnik zahteva >=16 GiB `MemAvailable` in PSI avg10/avg60 <1 % pred avtentikacijo; varovalka ni bila sproščena.
-**Naslednje:** eno mirno okno z >=16 GiB za obstoječi zaporedni backup/restore; brez samodejnega nadaljevanja.
+**A. Izvorna specifikacija.** Iz uradnega trenutnega OpenAPI in navodil zajeti celoten register operacij, vhodne parametre, načine avtorizacije, paginacijo/izvoz, DTO/JSON sheme, povezave, šifrante, vrsto besedil, formate, zgodovino in pogoje uporabe. Vsaki trditvi dodati uradni vir ali dejanski, posebej odobren odgovor z API. Ločeno opisati nedokumentirane portalne storitve in omejitve. Če PISRS API določene vsebine ne daje, to izrecno označiti, ne nadomestiti z domnevami.
 
-**7. 11. 2026, 17:12 CET, F4 ponovni poskus:** začetno `MemAvailable=19,37 GiB`, PSI avg10 0 %; odobreni enkratni izvajalnik je pridobil pravi lock in začel PG dump.
-**Ustavitev:** po 20,6 s PSI avg10 some/full 1,60 % nad 1 % varovalko, RAM 18,87 GiB; PG dump delni, Qdrant snapshot in izolirana obnova NOT_RUN.
-**Dokazi:** `/home/rajko/.local/state/pisrs-f4-recovery-20261107-Rt7t5H`, SHA-256 dokaznega `ROOT_SHA256SUMS` `17088e9fe2dd82043a8dfba3fa63d1bc2e2687cca0d40707961d4d5845c42eb2`; delni backup `/var/lib/pisrs-backups/backup-20261107T161235Z` NI obnovitvena točka.
-**Produkcija:** 0 PG/Qdrant/checkpoint zapisov po izvajalniku, servis inactive, timer active; runtime imenik in pravi lock ustvarjena ter ohranjena, zaklep po prekinitvi prost. Celovitost novega kompleta UNKNOWN.
-**Naslednje:** brez ponovitve v tem obratu; zagotoviti mirno PSI okno za en nov popoln zajem in zaporedno izolirano obnovo.
+**B. Podatkovna preslikava.** Za vsako izvorno polje/identiteto/različico iz A navesti točno PG tabelo in stolpec ter izvorni JSON/HTML/datotečni manifest; razmejiti normalizirane podatke od nespremenjenega izvirnika, ključev in sledljivosti. Izvesti popis dejanskega PG in Qdrant kontrakta ter primerjavo s ciljno shemo — brez poseganja v produkcijo.
 
-**7. 11. 2026, 17:15 CET, F4 drugi poskus:** `MemAvailable` in PSI pred izvedbo PASS, servis inactive, timer active; obstoječi izvajalnik se je dejansko zagnal kot root (dokaz `root-started.json`).
-**Ustavitev:** pred backupom `other active PISRS query during preflight`; `capture=NOT_RUN`, `restore=NOT_RUN`, novi backup in obnovitvena točka nista nastala. Zaganjalnikov `BLOCKED_AUTHENTICATION_NO_ROOT_START` je časovna dirka; ni dejanski vzrok.
-**Dokazi:** `/home/rajko/.local/state/pisrs-f4-recovery-20261107-LascSa`; SHA-256 dokaznega `ROOT_SHA256SUMS` `22e907bdc57ebba617c522a72213050edea55296b387fda18c994fe66d94fd61` (člani PASS, brez novega backup manifesta).
-**Produkcija:** 0 PG/Qdrant/checkpoint zapisov, 0 sprememb servisa/timerja ali runtime locka; prejšnji delni komplet ostaja nepreverjena delna kopija.
-**Naslednje:** brez ponovitve v tem obratu; za nov zajem zagotoviti okno brez drugih aktivnih PISRS poizvedb in miren PSI.
+**C. Objektivni GAP in odločitev.** Matriko `API ponuja / obstoječa baza hrani / manjka / ni dostopno / kaj je zaželeno v Qdrantu` podpreti z dokazi in šele nato lastniku predložiti odločitev, kaj ohraniti, popraviti, ponovno uporabiti ali izločiti. Oceniti stroške šele po znanem naboru besedil. Ni privzetega dodatnega reembeddinga.
 
-**7. 11. 2026, 19:03 CET, F4 predpogoj:** `MemAvailable=7,526 GiB`, primanjkljaj 8,474 GiB do nespremenjene 16 GiB meje; PSI avg10 0,05 %, avg60 0,02 %; disk 768,81 GB na voljo.
-**Sistem:** `pisrs-ingest.service` inactive/dead, timer active/waiting, naslednji zagon 8. 11. ob 03:00 CET; v omejeni kontroli ni bilo najdenega servisnega zapisovalnega procesa.
-**Rezultat:** RAM varovalka FAIL; backup in izolirana obnova NOT_RUN, novi identifikator in kontrolne vsote ne obstajajo.
-**Produkcija:** 0 sprememb v tem obratu; stare delne kopije ostajajo nedotaknjene.
-**Naslednje:** ob dejansko razpoložljivih >=16 GiB in brez sočasnih PISRS poizvedb enkrat izvesti obstoječi pregledani postopek.
+**D. Nova izrecna lastnikova odobritev.** Šele po lastnikovem sprejemu A–C je dovoljeno določiti *nov* izvedbeni obseg. Starih F0–F5 oziroma Linear OLC-77/79/80/82/83/85 se ne izvaja kot odprtih mandatov. Brez novih projektov ali samostojnih razširitev. Vse zgodovinske evidence ohraniti.
 
-**7. 11. 2026, 19:07 CET, F4 nizki RAM:** `MemAvailable=7,95 GiB`, `SwapFree≈67,8 MiB`, PSI avg10 0,09 %; disk 768,59 GB na voljo. Brez backup/restore zagona v tem obratu.
-**Dokaz meje:** pregledani runbook ne zahteva 16 GiB za pretočni capture; ta prag je dodal zasebni supervisor. Pregledani restore hkrati ohranja PG (2 GiB cap) in zažene Qdrant (8 GiB cap).
-**Neznanka:** uspešni restore 31. 10. je imel 22,58 GiB `MemAvailable` pred obnovo, vendar poročilo izrecno ne meri vršne porabe; iz kap ni mogoče sklepati o dejanski porabi.
-**Produkcija:** 0 sprememb, brez novega backup manifesta ali obnovitvene točke; predhodni delni backup ostaja nedotaknjen.
-**Naslednje:** dokazati varnost obstoječega restore pri trenutni kapaciteti, preden se spremeni samo numerični RAM guard ali začne nov zajem.
-
-**7. 11. 2026, 20:01–20:26 CET, F4:** usklajen zajem produkcijskega PG, Qdranta in 62-bajtnega checkpointa pod pravim app zaklepom PASS; `/var/lib/pisrs-backups/backup-20261107T190129Z`, SHA-256 `SHA256SUMS` `939c350d8f11fbc0b087043d3cfecef663a3de3b3563587f0d793f6fa30cde3f`; vsi člani in ponovljeni izvorni prstni odtisi so se ujemali.
-**Obnova:** izolirani PG se je začel, vendar ga je varovalo ustavilo ob `full PSI avg60=1,00 %`; PG rezultat FAIL/nedokazan, Qdrant NOT_RUN, checkpoint v zajemu PASS in izolirani odčitek NOT_RUN. Testni vsebnik je odstranjen; ponovitve ni bilo.
-**Viri/dokazi:** najmanjši vzorčeni `MemAvailable=10,04 GiB`, izolirani PG vzorčno 229–244 MiB (vrh UNKNOWN); `/home/rajko/.local/state/pisrs-f4-recovery-20261107T190113Z`, SHA-256 `ROOT_SHA256SUMS` `d88b45b6b5795bce36d81a7a1343ea53747e5a49208fa8393a914d1d637f30b0`.
-**Produkcija:** izvajalnik 0 zapisov v PG/Qdrant/checkpoint in 0 sprememb servisov; enoti pred/po bajtno enaki, servis inactive, timer active; končni polni izvorni fingerprint po prekinjeni obnovi NOT_RUN. Backup ohranjen, obnovljivost nove točke UNKNOWN, migracija HOLD.
-**Naslednje:** samo izolirana zaporedna obnova ob varnem pomnilniškem pritisku, brez novega zajema ali produkcijskih sprememb.
-
-**7. 11. 2026, 21:01–21:15 CET, F4 zaključek povratne točke:** izključno obstoječi backup `/var/lib/pisrs-backups/backup-20261107T190129Z` je bil zaporedno obnovljen v `/var/lib/pisrs-restore-drills/restore-20261107T200127Z`; `PASS_ISOLATED_RESTORE`, SHA-256 `report.json` `648615e745b7ef0296e0c53d0f41c17b02eae5f925b6dce2418722967ee29089` in `SHA256SUMS` `939c350d8f11fbc0b087043d3cfecef663a3de3b3563587f0d793f6fa30cde3f`.
-**Celovita primerjava:** 11 PG tabel in vse vrstice (vključno z 13.641.999 bloki), shema, 11 sekvenc, 142 omejitev, 281.338 Qdrant ID-jev/payloadov/vektorjev ter 62 bajtov checkpointa se ujemajo z zajetim izvornim baseline; `fingerprints_equal=true`.
-**Izolacija in viri:** testni PG je bil odstranjen pred zagonom testnega Qdranta; oba sta nato odstranjena, `network=none`, brez objavljenih vrat ali produkcijskih priklopov; vzorčeno PG največ 320 MiB, Qdrant največ 3,402 GiB (vrh ni izmerjen), brez ugotovljenega OOM.
-**Produkcija:** obnovitev ni pisala v produkcijski PG/Qdrant/checkpoint, nightly/Engine nespremenjena. Nova povratna točka PASS; produkcijska migracija in aktivacija HOLD.
-**Naslednje:** samo lastnikova odločitev o že pripravljenem produkcijskem prehodu; brez samodejnega nadaljevanja.
-
-**7. 11. 2026, F2 simulacija cene:** 276.368 že aktivnih chunkov ustreza implementiranemu Qdrant reuse kontraktu; dodatnih v tem konkretnem sklopu 0 in 0 USD po tarifi 0,13 USD/milijon tokenov, brez ponovnega izračuna vseh chunkov iz blokov.
-**Izmerjeno:** dva predhodno ohranjena državna NPB vzorca po `make_chunks` in `cl100k_base` vsebujeta 147 že obstoječih chunkov in 192.761 tokenov; 60 stratificiranih lokalnih NPB zahtev 404, kontrolni državni dokument 200. Vzorec ne dokazuje globalne nerazpoložljivosti.
-**Meje:** kandidat trenutno ne vektorizira `source_text_versions` za LS in nima potrjene EU besedilne poti; ni reprezentativnih uspešnih LS besedil za oceno dolžine, zato skupni novi tokeni, cena, interval in bajti UNKNOWN. Pregled Qdrant reuse ne prenaša vseh vektorjev; numerični vektorji so bili celovito preverjeni v izolirani obnovi backupa.
-**Obseg:** obstoječi LS backfill bi za 95.735 kataloških identitet potreboval do enega osnovnega `/besedilo/{id}` zahtevka na identiteto, brez retry/discovery; državne NPB identitete so že prisotne, preverba njihovih vsebin pri viru je ločena. Priporočeni so nadaljevalni tehnični paketi.
-**Produkcija:** 0 SQL/Qdrant zapisov in 0 embedding klicev; dokazni manifest SHA-256 `005859c4d767671f9c2ef55d4c4a935e161ad30500ebfff1ac77ddfe4b6413f6`. **Naslednje:** določiti LS/EU indeksni kontrakt in uradno dostopno besedilno pot.
-
-
-**7. 11. 2026, 22:27–22:49 CET, odobrena kataloška nadgradnja PASS:** izdaja `84b72b19054c3482408e154fc85ca6be41e156db`; 178 offline PASS/8 SKIP, 5 izoliranih PG PASS, dejanska kopija produkcijske sheme + aditivna migracija PASS; GitHub CI [42415254706](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/actions/runs/42415254706) PASS.
-**Produkcijski rezultat:** 65.308 državnih aktov, 71.649 NPB, 80.128 EU + 125.012 LS aktov + 95.735 LS NPB = 300.875 novih kataloških identitet; 31.785 provenienčnih parov dopolnjenih v obeh tabelah, 0 manjkajočih; 130.601 raw variant. Kataloške sekvence napredujejo zaradi UPSERT; identitete/PK povezave ohranjene.
-**Ohranitev:** devet drugih prvotnih PG tabel, vseh 281.338 Qdrant ID/payloadov/vektorjev in checkpoint so nespremenjeni; 0 besedilnih zahtevkov, 0 embedding klicev/0 USD. Read-only preflight PASS, timer ACTIVE/enabled za 8. 11. 03:00 CET v izrecnem načinu `nightly --catalogs-only`; stara izdaja ohranjena.
-**Dokazi:** `/home/rajko/.local/state/pisrs-catalog-upgrade-20261107T2130Z`, SHA-256 `SHA256SUMS` `d26abd5dda873c7371ddaf35cfaf5454e1a6d70ec2a1507e5f2d0d70704fea83`; identitetni/provenienčni SHA-256 `cb9ea0fac1b2a8e1e520ea8c4bbad48736f9e1ff6155152b559d354c37a42431`; trajanje 1.308 s.
-**Meje/naslednje:** 352 državnih NULL act_id, 6.744 nerešenih LS povezav in besedilna/zgodovinska/vektorska popolnost niso popravljeni; samodejna nepotrjena LS besedilna pot odstranjena, lokalni 404 ni dokaz odsotnosti. Naslednji korak je bralna kontrola prvega načrtovanega kataloškega nightlyja; brez nadaljnjega posega v tem obratu.
-
-
-**8. 11. 2026, F2 lokalna besedila:** neposredni javni HTTP na Medu za obe navedeni strani, podani PDF 457873423 ter tri potrjene HTML datoteke vrne 407 Proxy Authentication Required; to ni HTTP404 niti dokaz odsotnosti. Brskalnik dejansko prikaže in prebere 3 samostojne HTML dokumente; izvornega HTTP statusa njegovo orodje ne razkrije (UNKNOWN), zato ni trditve o izmerjenem HTTP200 na Medu.
-**Dokazana pot:** portal opazovano kliče `/api/rezultat/zbirka/id/{MP_ID}` in `/api/rezultat/neuradno-precisceno-besedilo/{LS_NPB_ID}/details`, nato objavi povezave `/api/datoteke/integracije/{FILE_ID}`. Enolični PG/portal pari: MP_ODLO53818 → LS_NPB567067822/osnovno/2024-01-3635 → HTML610930496; MP_SKLE50333 → LS_NPB581247305/osnovno/2026-77-0004 → HTML612216606; MP_STAT1393 → LS_NPB567246249/NPB1/2023-01-1087-2015-01-1346-npb01 → HTML641217514. Kataloški ID ni ID datoteke; pri zgodovini ne zamenjaj izbrane različice z najnovejšo.
-**Besedilni dokazi:** dolžine 11.262/1.150/78.539 znakov; SHA-256 UTF-8 `document.body.innerText` (ne izvornih bajtov datoteke) 3e819891ad65b3d6315f5a8b4418275528da2d3333715732a747b6ec4a308797 / c7df1cce364cf4df59a5b39d89ea13d7afc42c0b19d897523a54af95e92cb8bd / 57b1dcca178aa1494a403ce74b3b63f8e9e05e9e46634d2e6cfeff322791a991. Portal za MP_ODLO24466 izrecno pravi, da datoteke in HTML besedilo ne obstajajo; to je akt v pripravi, ne dokaz za druge lokalne NPB. Stari indeksirani PDF457873423 je NPB1 statuta (43 strani), živi prenos na Medu407 in povezava njegovih bajtov s sedanjim katalogom UNKNOWN.
-**Pokritost/meja:** PG READ ONLY sveže potrdi 95.735 LS_NPB, 88.991 enoličnih povezav in 6.744 nerešenih; natančno 3 različice imajo v tej kontroli pridobljeno besedilo, NPB2 statuta568136021 je dodatno vidna v portalu. Osnovna različica statuta535369809 ni med opaženima izbirama NPB1/NPB2; ne nadomesti je z drugo. Dokazi `/tmp/pisrs-local-text-20261108/RESULT.json`, SHA-256 SHA256SUMS dd0fbd4827b69af5cb245bd374f5a510350f756fe2bfa811bc667ef14c6c04c9. 0 produkcijskih zapisov, 0 embeddingov, 0 sprememb kode/nightlyja.
-**Tehnična rešitev/naslednje:** ločeni LS besedilni adapter naj uporabi točni LS_NPB ID v opaženi details poti, preveri povezavo različice in akta ter prenese samo izrecno objavljeni HTML/file ID; zatem obstoječi parser. Nikoli ne konstruiraj datotečnega ID iz kataloškega, ne predpostavi latest in ne preusmeri LS v državni /besedilo. Pred kvalifikacijo čistega HTTP adapterja je konkretna blokada407 ter še neprebrana neposredna JSON shema details; naslednje je omogočiti obstoječo legitimno bralno HTTP pot za ta majhen dokazni vzorec. Masovni zajem in produkcijska aktivacija adapterja nista izvedena.
+**Zadnje stanje:** RESET / NO DEVELOPMENT AUTHORIZED. Produkcija ostane v obstoječem načinu; nadaljnjih ukazov za razvoj ali produkcijo ta dokument ne izdaja.
