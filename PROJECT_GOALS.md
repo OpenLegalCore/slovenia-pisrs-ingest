@@ -1,16 +1,11 @@
-# PISRS — en cilj, šest obstoječih nalog
+# PISRS — cilj in status po lastnikovem resetu (8. 11. 2026)
 
-**Edina aktualna avtoriteta za obseg, stanje in nadaljevanje:** [PISRS-FULL-API-EXECUTION.md](docs/PISRS-FULL-API-EXECUTION.md). Za omejitve in način dela glej [AGENTS.md](AGENTS.md). **Merila za DONE:** [ACCEPTANCE_TESTS.md](ACCEPTANCE_TESTS.md).
+**STATUS: OWNER STOP.** Dosedanje F0–F5 izvedbene naloge niso več veljaven razvojni mandat; ne nadaljuj jih samodejno. Osrednja konsolidacija z vsemi viri in dokazi: [PISRS-FULL-API-EXECUTION.md](docs/PISRS-FULL-API-EXECUTION.md). Pravila: [AGENTS.md](AGENTS.md).
 
-**Cilj:** celovita, dokazljiva in samodejna uskladitev vseh uradno dostopnih PISRS API podatkov (vseh 13 katalogov, relevantnih identitet, besedil in zgodovinskih različic) z obstoječim PostgreSQL ter s pogodbeno izpeljanim Qdrantom; delujoči nightly in neprekinjeno delovanje Engine, brez sprememb Engine kode.
+**Nespremenjeni lastnikov cilj:** dokumentiran in preverjen uradni PISRS API ter vse dejansko dostopne vsebine → pregledna, trajna PostgreSQL baza izvirnikov/metapodatkov/različic; šele po brezplačni izmeri tokenov ločeno odobren Qdrant indeks. Nightly brez prekinitve Engine. Kaj je dejansko uradno dostopno, katere izvirne formate dobimo in kaj hranimo, mora biti dokazano *pred* razvojem.
 
-| Izvedbena faza | Obstoječi Linear zapis |
-| --- | --- |
-| F0 — dejanska produkcija in API vir | [OLC-77](https://linear.app/openlegalcore/issue/OLC-77) |
-| F1 — državni/EU/lokalni katalogi | [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80) |
-| F2 — besedila in vsa dostopna zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) |
-| F3 — povezave, integriteta in Qdrant | [OLC-85](https://linear.app/openlegalcore/issue/OLC-85) |
-| F4 — odobrena produkcijska uskladitev in A1–A9 | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) |
-| F5 — pospravljanje in tehnična predaja Engine | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) |
+**Obstoječi rezultat, ki ga ohranimo:** nameščena kataloška izdaja `84b72b1`; po poročilu izvršitve v PG 65.308 državnih aktov, 71.649 državnih NPB, 80.128 EU, 125.012 lokalnih aktov in 95.735 lokalnih NPB; Qdrant 281.338 starih točk ohranjen. **To ni dokaz popolnosti besedil/zgodovine.**
 
-OLC-78/81/84 so zgodovinske, preklicane oziroma konsolidirane naloge. **Ne odpiraj novih issues ali projektov.** Zgodovinski rezultati se preverjajo v Git zgodovini in Linear, ne kopirajo v trenutna navodila.
+**Ponovni začetek ni razvojna naloga.** Pred prvo novo odobritvijo so potrebni: (A) uradni API register shem in funkcij, (B) točna matrika izvornega polja in dokumenta → PG tabela/stolpec/izvirnik, (C) dejanski GAP glede na obstoječo produkcijo, (D) lastnikova presoja zasnove. Glej mandat, razdelek 5.
+
+**Zgodovinska evidenca (zamrznjena):** [OLC-77](https://linear.app/openlegalcore/issue/OLC-77), [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80), [OLC-82](https://linear.app/openlegalcore/issue/OLC-82), [OLC-85](https://linear.app/openlegalcore/issue/OLC-85), [OLC-83](https://linear.app/openlegalcore/issue/OLC-83). Ohraniti kot dokaze; brez njihove ponovne uporabe kot dovoljenja za izvedbo, brez novih projektov ali nalog. `ACCEPTANCE_TESTS.md` je pogojna referenca, ne dosežen PASS.
