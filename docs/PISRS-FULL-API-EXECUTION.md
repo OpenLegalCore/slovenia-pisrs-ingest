@@ -65,6 +65,13 @@ Ne more se zaključiti po dokumentaciji ali testih, če obstaja nadaljnje neodvi
 
 ## Stanje in predaja
 
+### 2026-11-07 — pregled dejanskega CLI pred lastnikovo odobritvijo API dostopa
+
+- **Neposredni code readback:** v `src/pisrs_ingest/cli.py` obstajajo `preflight`, `nightly`, `reconcile` in `catalog-sync`, **ne pa** varnega `identity-only` CLI za vseh 13 katalogov. `catalog-sync --dry-run` zajema `client.discover_acts()` (7 državnih katalogov) in načrtuje PG provenienco, ne pa EU/LS popolnega popisa. Stara produkcijska izdaja 94c5b2a nima novih 13-zbirčnih razvojnih adapterjev. Zato je splošna odobritev »zaženi obstoječi klient pod servisnim profilom« **preveč nedoločna**: ne sme se nadomestiti z nightlyjem, catalog apply ali nepreverjeno CLI opcijo.
+- **Predlagana ozka odobritev (še ni dana):** enkratna, nadzorovana, izključno bralna uporaba **pregledanih razvojnih `PisrsClient.discover_acts/discover_npbs/discover_eu_acts/discover_local_acts/discover_local_npbs`** z obstoječim zaščitenim `EnvironmentFile`, kot `pisrs-ingest`, z `PISRS_ALLOW_WRITES=0`, samo HTTPS GET identitet/metapodatkov, brez `fetch_text`, PG/Qdrant zapisov, embedderja, sprememb systemd konfiguracije/timerja in izpisa/kopiranja poverilnic. Najprej najmanjši preveritveni GET in fail-closed ob 407; šele po dokazani avtorizaciji omejen pretočni popis. Sam začasni bralni izvajalnik mora imeti pred izvršitvijo pregledno kodo in dokazljivo brezmutacijski obseg; ne ustvarjaj nove trajne platforme.
+- **Cilj:** časovno označeni popolni source ID/provenance manifest s hashom in diffom proti že izmerjenemu PG; brez objavljanja zasebnih podatkov. Če servisni profil ne omogoča dovoljenega bralnega izvajalnika, ostane `HOLD` do ločeno dogovorjene operaterske poti.
+- **Koordinacijski pregled:** izvedeno je samo branje GitHub kode/dokumentacije; PISRS/API/PG/Qdrant/Medo in servisni runtime nespremenjeni. Lastnikova odobritev še manjka.
+
 ### 2026-11-07 13:22 CET / 12:22 UTC — F4 dostop do uradnega API-ja: BLOCKED
 
 - **Host/checkout:** Medo, obstoječi čisti worktree `codex/pisrs-state-catalogs-20261031` je bil brez prepisovanja lokalnega dela fast-forward usklajen z oddaljenim `eab5d30a0d94293420f6e8bb94c62263779961bf`. Produkcijske spremembe, novi uporabniki/pravice, `sudo`/`pkexec`, systemd in nightly posegi: **0**.
