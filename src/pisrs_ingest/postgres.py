@@ -14,6 +14,8 @@ from .models import Act, NpbDocument
 if TYPE_CHECKING:
     from .postgres_chunks import ChunkStore
     from .postgres_documents import DocumentStore
+    from .postgres_external import ExternalCatalogStore
+    from .postgres_external_text import ExternalTextStore
 
 
 class PostgresInvariantError(RuntimeError):
@@ -21,6 +23,41 @@ class PostgresInvariantError(RuntimeError):
 
 
 REQUIRED_COLUMNS = {
+    "state_raw_variants": {"register_id", "endpoint", "raw_item", "updated_at"},
+    "source_catalog_items": {
+        "namespace",
+        "source_id",
+        "source_id_int",
+        "title",
+        "moped_plus_id",
+        "eda",
+        "sop",
+        "sop_from_docno",
+        "npb_label",
+        "linked_act_namespace",
+        "linked_act_source_id",
+        "link_status",
+        "seen_in_endpoints",
+        "raw_by_endpoint",
+        "updated_at",
+    },
+    "source_text_versions": {
+        "namespace",
+        "source_id",
+        "status",
+        "last_attempt_reason",
+        "source_url",
+        "html",
+        "plain_text",
+        "blocks",
+        "articles",
+        "parser_warnings",
+        "parser_version",
+        "content_hash",
+        "checked_at",
+        "imported_at",
+        "updated_at",
+    },
     "act_sync_catalog": {
         "register_id",
         "moped_id",
@@ -161,6 +198,22 @@ REQUIRED_COLUMNS = {
 }
 
 ESSENTIAL_NOT_NULL = {
+    "state_raw_variants": {"register_id", "endpoint", "raw_item", "updated_at"},
+    "source_catalog_items": {
+        "namespace",
+        "source_id",
+        "seen_in_endpoints",
+        "raw_by_endpoint",
+        "updated_at",
+    },
+    "source_text_versions": {
+        "namespace",
+        "source_id",
+        "status",
+        "source_url",
+        "checked_at",
+        "updated_at",
+    },
     "acts": {"register_id", "moped_id", "sync_status"},
     "act_sync_catalog": {
         "naziv",
@@ -207,6 +260,9 @@ ESSENTIAL_NOT_NULL = {
 }
 
 UNIQUE_TARGETS = {
+    "state_raw_variants": "(register_id, endpoint)",
+    "source_catalog_items": "(namespace, source_id)",
+    "source_text_versions": "(namespace, source_id)",
     "act_sync_catalog": "(register_id)",
     "acts": "(register_id)",
     "npb_catalog": "(text_id)",
@@ -216,6 +272,20 @@ UNIQUE_TARGETS = {
 }
 
 ESSENTIAL_FOREIGN_KEYS = {
+    (
+        "source_catalog_items",
+        "FOREIGN KEY (linked_act_namespace, linked_act_source_id) "
+        "REFERENCES pisrs.source_catalog_items(namespace, source_id)",
+    ),
+    (
+        "state_raw_variants",
+        "FOREIGN KEY (register_id) REFERENCES pisrs.acts(register_id)",
+    ),
+    (
+        "source_text_versions",
+        "FOREIGN KEY (namespace, source_id) "
+        "REFERENCES pisrs.source_catalog_items(namespace, source_id)",
+    ),
     (
         "act_text_versions",
         "FOREIGN KEY (act_id) REFERENCES pisrs.acts(id) ON DELETE SET NULL",
@@ -363,17 +433,21 @@ class PostgresDatabase:
 
 @dataclass(frozen=True)
 class PostgresBoundary:
-    """Explicit composition of the three PostgreSQL persistence responsibilities."""
+    """Explicit composition of PostgreSQL catalog, text, and vector responsibilities."""
 
     database: PostgresDatabase
     catalogs: CatalogStore
     documents: DocumentStore
     chunks: ChunkStore
+    external: ExternalCatalogStore
+    external_text: ExternalTextStore
 
     @classmethod
     def create(cls, dsn: str, collection: str) -> PostgresBoundary:
         from .postgres_chunks import ChunkStore
         from .postgres_documents import DocumentStore
+        from .postgres_external import ExternalCatalogStore
+        from .postgres_external_text import ExternalTextStore
 
         database = PostgresDatabase(dsn)
         return cls(
@@ -381,6 +455,8 @@ class PostgresBoundary:
             catalogs=CatalogStore(database),
             documents=DocumentStore(database),
             chunks=ChunkStore(database, collection),
+            external=ExternalCatalogStore(database),
+            external_text=ExternalTextStore(database),
         )
 
 

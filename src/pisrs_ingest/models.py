@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -32,6 +32,104 @@ class SourceInvariantError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ExternalCatalogItem:
+    """An EU or local identity, kept separate from state register/text IDs."""
+
+    namespace: str
+    source_id: str | int
+    title: str | None
+    moped_plus_id: str | None
+    eda: str | None
+    sop: str | None
+    seen_in_endpoints: tuple[str, ...]
+    raw_by_endpoint: dict[str, dict[str, Any]]
+
+    @classmethod
+    def from_raw(cls, row: dict[str, Any], endpoint: str, namespace: str) -> ExternalCatalogItem:
+        if namespace == "EU":
+            identity = row.get("celex")
+            if (
+                not isinstance(identity, str)
+                or not identity.strip()
+                or identity != identity.strip()
+            ):
+                raise SourceInvariantError("EU act has no exact CELEX identity")
+            source_id: str | int = identity
+        elif namespace in {"LS_ACT", "LS_NPB"}:
+            source_id = row.get("id")
+            if type(source_id) is not int or source_id <= 0:
+                raise SourceInvariantError(f"{namespace} item has an invalid id")
+        else:
+            raise SourceInvariantError(f"unknown source namespace {namespace}")
+        moped = row.get("mopedPlusId") if namespace == "LS_ACT" else None
+        if namespace == "LS_ACT" and (
+            not isinstance(moped, str) or not moped.strip() or moped != moped.strip()
+        ):
+            raise SourceInvariantError("local act has no exact mopedPlusId identity")
+        return cls(
+            namespace=namespace,
+            source_id=source_id,
+            title=_optional_text(row.get("naziv")),
+            moped_plus_id=moped,
+            eda=_optional_text(row.get("eda")) if namespace == "LS_ACT" else None,
+            sop=_optional_text(row.get("sop")) if namespace == "LS_ACT" else None,
+            seen_in_endpoints=(endpoint,),
+            raw_by_endpoint={endpoint: row},
+        )
+
+    def merge(self, other: ExternalCatalogItem) -> ExternalCatalogItem:
+        if (self.namespace, self.source_id) != (other.namespace, other.source_id):
+            raise SourceInvariantError("cannot merge different source identities")
+        for key in ("moped_plus_id", "eda", "sop"):
+            left, right = getattr(self, key), getattr(other, key)
+            if left is not None and right is not None and left != right:
+                raise SourceInvariantError(f"one {self.namespace} identity has conflicting {key}")
+        variants = dict(self.raw_by_endpoint)
+        for endpoint, raw in other.raw_by_endpoint.items():
+            if endpoint in variants and variants[endpoint] != raw:
+                raise SourceInvariantError("same endpoint returned conflicting source rows")
+            variants[endpoint] = raw
+        return ExternalCatalogItem(
+            namespace=self.namespace,
+            source_id=self.source_id,
+            title=self.title or other.title,
+            moped_plus_id=self.moped_plus_id or other.moped_plus_id,
+            eda=self.eda or other.eda,
+            sop=self.sop or other.sop,
+            seen_in_endpoints=tuple(
+                dict.fromkeys((*self.seen_in_endpoints, *other.seen_in_endpoints))
+            ),
+            raw_by_endpoint=variants,
+        )
+
+
+@dataclass(frozen=True)
+class CatalogListObservation:
+    """A /seznam row; its presence alone does not establish a full act."""
+
+    namespace: str
+    source_id: int
+    raw_by_endpoint: dict[str, dict[str, Any]]
+
+    @classmethod
+    def from_raw(cls, row: dict[str, Any], endpoint: str, namespace: str) -> CatalogListObservation:
+        source_id = row.get("id")
+        if namespace not in {"RS_LIST", "LS_LIST"} or type(source_id) is not int or source_id <= 0:
+            raise SourceInvariantError("/seznam row has an invalid source identity")
+        return cls(namespace, source_id, {endpoint: row})
+
+    def merge(self, other: CatalogListObservation) -> CatalogListObservation:
+        if (self.namespace, self.source_id) != (other.namespace, other.source_id):
+            raise SourceInvariantError("cannot merge different /seznam identities")
+        overlap = self.raw_by_endpoint.keys() & other.raw_by_endpoint.keys()
+        if overlap:
+            raise SourceInvariantError("/seznam contains a duplicate endpoint identity")
+        return CatalogListObservation(
+            self.namespace, self.source_id, {**self.raw_by_endpoint, **other.raw_by_endpoint}
+        )
+
+
+@dataclass(frozen=True)
 class Act:
     register_id: int
     moped_id: str
@@ -47,6 +145,7 @@ class Act:
     datum_prenehanja_veljavnosti: str | None
     seen_in_endpoints: tuple[str, ...]
     raw: dict[str, Any]
+    raw_by_endpoint: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @classmethod
     def from_raw(cls, row: dict[str, Any], endpoint: str) -> Act:
@@ -76,6 +175,7 @@ class Act:
             datum_prenehanja_veljavnosti=_optional_text(row.get("datumPrenehanjaVeljavnosti")),
             seen_in_endpoints=(endpoint,),
             raw=row,
+            raw_by_endpoint={endpoint: row},
         )
 
     def merge(self, other: Act) -> Act:
@@ -91,6 +191,12 @@ class Act:
         values["seen_in_endpoints"] = tuple(
             dict.fromkeys((*self.seen_in_endpoints, *other.seen_in_endpoints))
         )
+        variants = dict(self.raw_by_endpoint)
+        for endpoint, raw in other.raw_by_endpoint.items():
+            if endpoint in variants and variants[endpoint] != raw:
+                raise SourceInvariantError("same state endpoint returned conflicting raw records")
+            variants[endpoint] = raw
+        values["raw_by_endpoint"] = variants
         return Act(**values)
 
     def provenance(self) -> dict[str, Any]:
@@ -128,12 +234,12 @@ class NpbDocument:
 
     @classmethod
     def from_raw(cls, row: dict[str, Any]) -> NpbDocument:
-        if row.get("id") is None:
-            raise SourceInvariantError("NPB document is missing text_id")
+        if type(row.get("id")) is not int or row["id"] <= 0:
+            raise SourceInvariantError("NPB document has an invalid text_id")
         docno = _optional_text(row.get("stevilkaDokumenta"))
         sop, label = parse_document_number(docno)
         return cls(
-            text_id=int(row["id"]),
+            text_id=row["id"],
             naziv=_optional_text(row.get("naziv")),
             datum_dokumenta=_optional_text(row.get("datumDokumenta")),
             stevilka_dokumenta=docno,

@@ -12,7 +12,13 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 
-from .models import Act, NpbDocument, SourceInvariantError
+from .models import (
+    Act,
+    CatalogListObservation,
+    ExternalCatalogItem,
+    NpbDocument,
+    SourceInvariantError,
+)
 
 TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
 LOGGER = logging.getLogger(__name__)
@@ -111,6 +117,11 @@ class PisrsClient:
         "/predpis/drugi-splosni-in-posamicni-akti",
         "/predpis/splosni-akti-za-izvrsevanje-javnih-pooblastil",
     )
+    LOCAL_ACT_ENDPOINTS = (
+        "/akt-ls/veljavni-akti",
+        "/akt-ls/neveljavni-akti",
+        "/akt-ls/akti-v-pripravi",
+    )
 
     def __init__(self, base_url: str, token: str, http: HttpClient | None = None) -> None:
         self.base_url = base_url.rstrip("/") + "/"
@@ -143,6 +154,58 @@ class PisrsClient:
             by_id[document.text_id] = document
         return sorted(by_id.values(), key=lambda item: item.text_id)
 
+    def discover_eu_acts(self) -> list[ExternalCatalogItem]:
+        return [
+            ExternalCatalogItem.from_raw(row, "/predpis-eu", "EU")
+            for row in self._pages("/predpis-eu", total_key="totalCount", identity_key="celex")
+        ]
+
+    def discover_local_acts(self) -> list[ExternalCatalogItem]:
+        by_id: dict[int, ExternalCatalogItem] = {}
+        for endpoint in self.LOCAL_ACT_ENDPOINTS:
+            # The observed local totalCount is shared with unrelated catalogs or zero.
+            # An empty page, with duplicate-ID and page-limit checks, ends this source.
+            for row in self._pages(endpoint, total_key=None):
+                item = ExternalCatalogItem.from_raw(row, endpoint, "LS_ACT")
+                previous = by_id.get(item.source_id)
+                by_id[item.source_id] = previous.merge(item) if previous else item
+        return [by_id[key] for key in sorted(by_id)]
+
+    def discover_local_npbs(self) -> list[ExternalCatalogItem]:
+        return [
+            ExternalCatalogItem.from_raw(row, "/npb-ls", "LS_NPB")
+            for row in self._pages("/npb-ls", total_key="totalCount")
+        ]
+
+    def discover_list_observations(self) -> list[CatalogListObservation]:
+        """Collect /seznam evidence without inventing full acts from sparse rows."""
+
+        by_id: dict[tuple[str, int], CatalogListObservation] = {}
+        for catalog in (*self.ACT_ENDPOINTS, *self.LOCAL_ACT_ENDPOINTS):
+            endpoint = catalog + "/seznam"
+            namespace = "RS_LIST" if catalog in self.ACT_ENDPOINTS else "LS_LIST"
+            response = self.http.request(
+                "GET",
+                urljoin(self.base_url, endpoint.lstrip("/")),
+                headers=self.headers,
+                phase="catalog_list_discovery",
+            )
+            rows = response.json()
+            if not isinstance(rows, list):
+                raise SourceInvariantError(f"PISRS {endpoint} did not return a list")
+            seen_on_endpoint: set[int] = set()
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise SourceInvariantError(f"PISRS {endpoint} contains a non-object row")
+                item = CatalogListObservation.from_raw(row, endpoint, namespace)
+                if item.source_id in seen_on_endpoint:
+                    raise SourceInvariantError(f"PISRS {endpoint} contains a duplicate id")
+                seen_on_endpoint.add(item.source_id)
+                key = (namespace, item.source_id)
+                previous = by_id.get(key)
+                by_id[key] = previous.merge(item) if previous else item
+        return [by_id[key] for key in sorted(by_id)]
+
     def fetch_text(self, text_id: int) -> str:
         response = self.http.request(
             "GET",
@@ -170,11 +233,13 @@ class PisrsClient:
         if not isinstance(payload.get("data"), list):
             raise HttpError("PISRS probe response does not contain a data list")
 
-    def _pages(self, endpoint: str, *, total_key: str) -> list[dict[str, Any]]:
+    def _pages(
+        self, endpoint: str, *, total_key: str | None, identity_key: str = "id"
+    ) -> list[dict[str, Any]]:
         page = 1
         page_size = 1000
         result: list[dict[str, Any]] = []
-        seen_ids: set[int] = set()
+        seen_ids: set[int | str] = set()
         expected_total: int | None = None
         while page <= 1000:
             response = self.http.request(
@@ -182,7 +247,15 @@ class PisrsClient:
                 urljoin(self.base_url, endpoint.lstrip("/")),
                 headers=self.headers,
                 params={"page": page, "pageSize": page_size},
-                phase=("act_discovery" if endpoint in self.ACT_ENDPOINTS else "npb_discovery"),
+                phase=(
+                    "act_discovery"
+                    if endpoint in self.ACT_ENDPOINTS
+                    else "local_act_discovery"
+                    if endpoint in self.LOCAL_ACT_ENDPOINTS
+                    else "eu_act_discovery"
+                    if endpoint == "/predpis-eu"
+                    else "npb_discovery"
+                ),
             )
             payload = response.json()
             if not isinstance(payload, dict):
@@ -190,27 +263,42 @@ class PisrsClient:
             rows = payload.get("data")
             if not isinstance(rows, list):
                 raise HttpError(f"PISRS {endpoint} response does not contain a data list")
-            reported = payload.get(total_key)
-            if type(reported) is not int or reported < 0:
-                raise SourceInvariantError(f"PISRS {endpoint} has no valid {total_key} total")
-            if expected_total is None:
-                expected_total = reported
-            elif reported != expected_total:
-                raise SourceInvariantError(f"PISRS {endpoint} reported total changed during paging")
+            if total_key is not None:
+                reported = payload.get(total_key)
+                if type(reported) is not int or reported < 0:
+                    raise SourceInvariantError(f"PISRS {endpoint} has no valid {total_key} total")
+                if expected_total is None:
+                    expected_total = reported
+                elif reported != expected_total:
+                    raise SourceInvariantError(
+                        f"PISRS {endpoint} reported total changed during paging"
+                    )
             if len(rows) > page_size:
                 raise SourceInvariantError(f"PISRS {endpoint} exceeded the requested page size")
             for row in rows:
                 if not isinstance(row, dict):
                     raise SourceInvariantError(f"PISRS {endpoint} contains a non-object row")
-                identity = row.get("id")
-                if type(identity) is not int or identity <= 0:
-                    raise SourceInvariantError(f"PISRS {endpoint} contains an invalid id")
+                identity = row.get(identity_key)
+                if identity_key == "celex":
+                    valid_identity = (
+                        isinstance(identity, str)
+                        and bool(identity.strip())
+                        and identity == identity.strip()
+                    )
+                else:
+                    valid_identity = type(identity) is int and identity > 0
+                if not valid_identity:
+                    raise SourceInvariantError(
+                        f"PISRS {endpoint} contains an invalid {identity_key}"
+                    )
                 if identity in seen_ids:
                     raise SourceInvariantError(f"PISRS {endpoint} contains a duplicate id")
                 seen_ids.add(identity)
             result.extend(rows)
-            if len(result) > expected_total:
+            if expected_total is not None and len(result) > expected_total:
                 raise SourceInvariantError(f"PISRS {endpoint} exceeded its reported total")
+            if total_key is None and not rows:
+                return result
             if len(result) == expected_total and len(rows) < page_size:
                 return result
             if not rows:

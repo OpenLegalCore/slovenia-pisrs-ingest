@@ -61,6 +61,7 @@ def test_overlapping_catalogs_preserve_one_identity_and_all_provenance() -> None
     discovered = client(pages).discover_acts()
     assert len(discovered) == 1
     assert discovered[0].seen_in_endpoints == PisrsClient.ACT_ENDPOINTS
+    assert set(discovered[0].raw_by_endpoint) == set(PisrsClient.ACT_ENDPOINTS)
 
 
 def test_duplicate_pages_cannot_hide_a_missing_identity_behind_reported_total() -> None:

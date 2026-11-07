@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .checkpoint import CheckpointStore, Interval
+from .client import HttpError
 from .models import MANAGED_PAYLOAD_KEYS, VectorRow, parse_html, qdrant_point_id
 from .qdrant import PointState, inspect_payload, payload_patch
 
@@ -42,13 +43,20 @@ class NightlyStats:
     interval_end: str
     acts_discovered: int = 0
     npbs_discovered: int = 0
+    eu_acts_discovered: int = 0
+    local_acts_discovered: int = 0
+    local_npbs_discovered: int = 0
     versions_imported: int = 0
+    documents_unavailable: int = 0
+    local_texts_imported: int = 0
+    local_texts_unavailable: int = 0
     documents_failed: int = 0
     sops_touched: int = 0
     vectors_embedded: int = 0
     vectors_reused: int = 0
     payloads_updated: int = 0
     inactive_points_missing: int = 0
+    backlog_remaining: bool = False
 
 
 @dataclass(frozen=True)
@@ -117,15 +125,24 @@ def run_nightly(
 
     acts = client.discover_acts()
     npbs = client.discover_npbs()
+    eu_acts = client.discover_eu_acts()
+    local_acts = client.discover_local_acts()
+    local_npbs = client.discover_local_npbs()
     stats.acts_discovered = len(acts)
     stats.npbs_discovered = len(npbs)
+    stats.eu_acts_discovered = len(eu_acts)
+    stats.local_acts_discovered = len(local_acts)
+    stats.local_npbs_discovered = len(local_npbs)
+    # All source contracts must pass before any catalog write begins.
+    postgres.external.synchronize([*eu_acts, *local_acts, *local_npbs])
     postgres.catalogs.synchronize(acts, npbs)
+    postgres.external.synchronize_state_raw(acts)
 
-    pending = postgres.documents.pending(max_documents + 1, interval.start)
-    if len(pending) > max_documents:
-        raise PipelineError(
-            f"new/changed document count exceeds PISRS_MAX_DOCUMENTS_PER_RUN={max_documents}"
-        )
+    if max_documents < 1:
+        raise PipelineError("PISRS_MAX_DOCUMENTS_PER_RUN must be positive")
+    pending_with_lookahead = postgres.documents.pending(max_documents + 1, interval.start)
+    stats.backlog_remaining = len(pending_with_lookahead) > max_documents
+    pending = pending_with_lookahead[:max_documents]
     failures: list[DocumentFailure] = []
     for document in pending:
         phase = "fetch"
@@ -136,6 +153,24 @@ def run_nightly(
             phase = "postgres_persist"
             postgres.documents.synchronize(document, parsed, client.source_url(document.text_id))
             stats.versions_imported += 1
+        except HttpError as exc:
+            if exc.status_code == 404:
+                postgres.documents.record_unavailable(document)
+                stats.documents_unavailable += 1
+                continue
+            failure = DocumentFailure(document.text_id, phase, type(exc).__name__)
+            failures.append(failure)
+            LOGGER.error(
+                json.dumps(
+                    {
+                        "event": "document_failure",
+                        "text_id": failure.text_id,
+                        "phase": failure.phase,
+                        "error_type": failure.error_type,
+                    },
+                    sort_keys=True,
+                )
+            )
         except Exception as exc:
             failure = DocumentFailure(document.text_id, phase, type(exc).__name__)
             failures.append(failure)
@@ -150,6 +185,32 @@ def run_nightly(
                     sort_keys=True,
                 )
             )
+    stats.documents_failed = len(failures)
+
+    local_capacity = max_documents - len(pending)
+    local_with_lookahead = postgres.external_text.pending(local_capacity + 1)
+    stats.backlog_remaining |= len(local_with_lookahead) > local_capacity
+    for document in local_with_lookahead[:local_capacity]:
+        phase = "local_fetch"
+        try:
+            html = client.fetch_text(document.text_id)
+            phase = "local_parse"
+            parsed = parse_html(html)
+            phase = "local_postgres_persist"
+            postgres.external_text.synchronize(
+                document, parsed, client.source_url(document.text_id)
+            )
+            stats.local_texts_imported += 1
+        except HttpError as exc:
+            if exc.status_code == 404:
+                postgres.external_text.record_unavailable(
+                    document, client.source_url(document.text_id)
+                )
+                stats.local_texts_unavailable += 1
+                continue
+            failures.append(DocumentFailure(document.text_id, phase, type(exc).__name__))
+        except Exception as exc:
+            failures.append(DocumentFailure(document.text_id, phase, type(exc).__name__))
     stats.documents_failed = len(failures)
 
     touched_sops = postgres.chunks.touched_sops(interval.start)
@@ -172,7 +233,11 @@ def run_nightly(
 
     if failures:
         raise DocumentBatchError(failures)
-    checkpoint.advance(interval.end)
+    # Keep the interval open until every pending document has been processed.
+    # The pending query excludes versions imported after their catalog update,
+    # so a retry cannot starve later documents in the same interval.
+    if not stats.backlog_remaining:
+        checkpoint.advance(interval.end)
     return stats
 
 
