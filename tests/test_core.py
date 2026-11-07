@@ -82,6 +82,15 @@ class FakeClient:
     def discover_npbs(self) -> list[object]:
         return []
 
+    def discover_eu_acts(self) -> list[object]:
+        return []
+
+    def discover_local_acts(self) -> list[object]:
+        return []
+
+    def discover_local_npbs(self) -> list[object]:
+        return []
+
     def fetch_text(self, text_id: int) -> str:
         raise AssertionError(f"unexpected fetch: {text_id}")
 
@@ -103,6 +112,10 @@ class FakePostgres:
         self.refreshed_point_ids: set[str] | None = None
         self.marked: list[str] = []
         self.catalogs = SimpleNamespace(synchronize=self.synchronize_catalogs)
+        self.external = SimpleNamespace(
+            synchronize=lambda items: None, synchronize_state_raw=lambda acts: None
+        )
+        self.external_text = SimpleNamespace(pending=lambda limit: [])
         self.documents = SimpleNamespace(
             pending=self.pending_versions, synchronize=self.synchronize_version
         )
@@ -511,8 +524,17 @@ class DocumentRunPostgres:
             NpbDocument(2, None, None, "2026-01-0002", "2026-01-0002", "osnovno", {}),
         ]
         self.persisted: set[int] = set()
+        self.unavailable: set[int] = set()
         self.catalogs = SimpleNamespace(synchronize=lambda acts, npbs: None)
-        self.documents = SimpleNamespace(pending=self.pending, synchronize=self.synchronize)
+        self.external = SimpleNamespace(
+            synchronize=lambda items: None, synchronize_state_raw=lambda acts: None
+        )
+        self.external_text = SimpleNamespace(pending=lambda limit: [])
+        self.documents = SimpleNamespace(
+            pending=self.pending,
+            synchronize=self.synchronize,
+            record_unavailable=self.record_unavailable,
+        )
         self.chunks = SimpleNamespace(
             touched_sops=lambda since: [],
             prepare_rollover=lambda sop, model, dimensions: [],
@@ -524,6 +546,9 @@ class DocumentRunPostgres:
 
     def synchronize(self, document: NpbDocument, parsed: object, source_url: str) -> None:
         self.persisted.add(document.text_id)
+
+    def record_unavailable(self, document: NpbDocument) -> None:
+        self.unavailable.add(document.text_id)
 
 
 def test_document_failure_continues_then_fails_and_repeats_interval() -> None:
@@ -552,6 +577,102 @@ def test_document_failure_continues_then_fails_and_repeats_interval() -> None:
     client.fail_first = False
     run_nightly(**arguments)
     assert postgres.persisted == {1, 2}
+    assert checkpoint.advanced == [checkpoint.end]
+
+
+def test_bounded_document_backfill_keeps_checkpoint_until_final_batch() -> None:
+    client = DocumentClient()
+    client.fail_first = False
+    postgres = DocumentRunPostgres()
+    postgres.documents.pending = lambda limit, since: [
+        item for item in postgres.documents_list if item.text_id not in postgres.persisted
+    ][:limit]
+    checkpoint = FakeCheckpoint()
+    arguments = {
+        "client": client,
+        "postgres": postgres,
+        "embedder": FakeEmbedder(),
+        "qdrant": FakeQdrant(),
+        "checkpoint": checkpoint,
+        "model": "text-embedding-3-large",
+        "dimensions": 3072,
+        "max_documents": 1,
+        "embed_batch_size": 2,
+        "max_embedding_input_bytes": 100,
+        "now": checkpoint.end,
+    }
+    first = run_nightly(**arguments)
+    assert first.backlog_remaining is True
+    assert postgres.persisted == {1}
+    assert checkpoint.advanced == []
+    second = run_nightly(**arguments)
+    assert second.backlog_remaining is False
+    assert postgres.persisted == {1, 2}
+    assert checkpoint.advanced == [checkpoint.end]
+
+
+def test_measured_404_is_reason_coded_and_does_not_block_later_document() -> None:
+    class MissingTextClient(DocumentClient):
+        def fetch_text(self, text_id: int) -> str:
+            if text_id == 1:
+                raise HttpError("missing text", status_code=404)
+            return super().fetch_text(text_id)
+
+    client = MissingTextClient()
+    client.fail_first = False
+    postgres = DocumentRunPostgres()
+    checkpoint = FakeCheckpoint()
+    stats = run_nightly(
+        client=client,
+        postgres=postgres,
+        embedder=FakeEmbedder(),
+        qdrant=FakeQdrant(),
+        checkpoint=checkpoint,
+        model="text-embedding-3-large",
+        dimensions=3072,
+        max_documents=2,
+        embed_batch_size=2,
+        max_embedding_input_bytes=100,
+        now=checkpoint.end,
+    )
+    assert stats.documents_unavailable == 1
+    assert stats.documents_failed == 0
+    assert postgres.unavailable == {1}
+    assert postgres.persisted == {2}
+    assert checkpoint.advanced == [checkpoint.end]
+
+
+def test_local_text_backfill_uses_existing_parser_without_embedding_or_qdrant() -> None:
+    postgres = DocumentRunPostgres()
+    postgres.documents.pending = lambda limit, since: []
+    local = NpbDocument(9, "Local version", None, None, None, None, {"id": 9})
+    imported: list[int] = []
+    postgres.external_text = SimpleNamespace(
+        pending=lambda limit: [local],
+        synchronize=lambda document, parsed, source_url: imported.append(document.text_id),
+        record_unavailable=lambda document, source_url: pytest.fail("unexpected 404"),
+    )
+    checkpoint = FakeCheckpoint()
+    embedder = FakeEmbedder()
+    qdrant = FakeQdrant()
+    client = DocumentClient()
+    client.fail_first = False
+    stats = run_nightly(
+        client=client,
+        postgres=postgres,
+        embedder=embedder,
+        qdrant=qdrant,
+        checkpoint=checkpoint,
+        model="text-embedding-3-large",
+        dimensions=3072,
+        max_documents=1,
+        embed_batch_size=2,
+        max_embedding_input_bytes=100,
+        now=checkpoint.end,
+    )
+    assert stats.local_texts_imported == 1
+    assert imported == [9]
+    assert embedder.calls == qdrant.upsert_calls == qdrant.payload_calls == 0
     assert checkpoint.advanced == [checkpoint.end]
 
 

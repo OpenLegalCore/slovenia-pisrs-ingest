@@ -141,6 +141,8 @@ def load_settings(command: str, environ: Mapping[str, str] | None = None) -> Set
 
     source = os.environ if environ is None else environ
     required = NIGHTLY_REQUIRED if command in {"nightly", "preflight"} else BASE_REQUIRED
+    if command == "catalog-sync":
+        required = BASE_REQUIRED + ("PISRS_PORTAL_BASE_URL", "PISRS_API_TOKEN")
     values = {name: _required(source, name) for name in required}
 
     collection = values["PISRS_QDRANT_COLLECTION"]
@@ -167,6 +169,19 @@ def load_settings(command: str, environ: Mapping[str, str] | None = None) -> Set
 
     if command == "preflight" and settings.allow_writes:
         raise ConfigError("preflight requires PISRS_ALLOW_WRITES=0")
+
+    if command == "catalog-sync":
+        return Settings(
+            **{
+                name: getattr(settings, name)
+                for name in settings.__dataclass_fields__
+                if name not in {"portal_base_url", "portal_token"}
+            },
+            portal_base_url=_url(
+                values["PISRS_PORTAL_BASE_URL"], "PISRS_PORTAL_BASE_URL", https_only=True
+            ),
+            portal_token=values["PISRS_API_TOKEN"],
+        )
 
     if command not in {"nightly", "preflight"}:
         return settings

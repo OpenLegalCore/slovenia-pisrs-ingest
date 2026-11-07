@@ -43,16 +43,26 @@ class DocumentStore:
                 SELECT n.text_id, n.naziv, n.datum_dokumenta, n.stevilka_dokumenta,
                        n.sop_from_docno, n.npb_label, n.raw_item
                 FROM pisrs.npb_catalog AS n
+                LEFT JOIN pisrs.act_text_versions AS version
+                  ON version.text_id = n.text_id
                 WHERE n.sop_from_docno IS NOT NULL
                   AND n.npb_label IS NOT NULL
                   AND (
-                      n.updated_at >= %s
-                      OR NOT EXISTS (
-                          SELECT 1 FROM pisrs.act_text_versions AS version
-                          WHERE version.text_id = n.text_id
-                      )
+                      n.status IS DISTINCT FROM 'skipped_no_text'
+                      OR n.last_attempt_at IS NULL
+                      OR n.updated_at > n.last_attempt_at
+                      OR n.last_attempt_at <= now() - interval '1 day'
                   )
-                ORDER BY n.text_id
+                  AND (
+                      version.id IS NULL
+                      OR version.imported_at IS NULL
+                      OR (
+                          n.status = 'skipped_no_text'
+                          AND n.last_attempt_at <= now() - interval '1 day'
+                      )
+                      OR (n.updated_at >= %s AND n.updated_at > version.imported_at)
+                  )
+                ORDER BY (n.status = 'skipped_no_text'), n.text_id
                 LIMIT %s
                 """,
                 (since, limit),
@@ -71,6 +81,23 @@ class DocumentStore:
             )
             for row in rows
         ]
+
+    def record_unavailable(self, document: NpbDocument) -> None:
+        """Record a measured 404 without inventing HTML or blocking later IDs."""
+
+        with self.database.connect() as connection, connection.transaction():
+            result = connection.execute(
+                """
+                UPDATE pisrs.npb_catalog
+                SET status = 'skipped_no_text',
+                    status_reason = 'NOT_AVAILABLE_FROM_API:HTTP_404',
+                    last_attempt_at = now(), last_error = NULL, updated_at = now()
+                WHERE text_id = %s
+                """,
+                (document.text_id,),
+            )
+            if result.rowcount != 1:
+                raise PostgresInvariantError("unavailable NPB identity disappeared")
 
     def synchronize(self, document: NpbDocument, parsed: ParsedText, source_url: str) -> None:
         if not parsed.blocks:

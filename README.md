@@ -1,5 +1,7 @@
 # OpenLegalCore Slovenian Legislation Ingest (PISRS)
 
+> **Scope note (development branch):** This README documents the published **v0.1.0** component and its historical August 2026 acceptance; it does **not** certify 13-source API completeness or the unactivated November 2026 development candidate. Current development scope and operational state: [PISRS execution mandate](docs/PISRS-FULL-API-EXECUTION.md). This branch note is not a production release claim.
+
 `pisrs-ingest` is the Slovenian legislation-ingest component of
 [OpenLegalCore](https://github.com/OpenLegalCore). It discovers legislation metadata and
 consolidated-text versions from PISRS, stores authoritative structured state in PostgreSQL,
@@ -58,7 +60,7 @@ flowchart LR
 
 The component provides:
 
-- complete discovery of PISRS act and consolidated-text (`NPB`) catalogs;
+- discovery of the PISRS act and consolidated-text (`NPB`) catalogs supported in v0.1.0;
 - fetching and parsing of selected consolidated legislative text;
 - stable act, document, block, article, chunk, and vector identities;
 - idempotent PostgreSQL synchronization in the existing `pisrs` schema;
