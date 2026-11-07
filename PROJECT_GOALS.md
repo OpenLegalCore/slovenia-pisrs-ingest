@@ -18,6 +18,10 @@ Independent safe work may proceed while host-only checks are pending.
 OLC-78 supplies prior API research to P2; OLC-81 supplies prior EU/municipal research to P3.
 OLC-84 is covered by these development documents. Retain these records without duplicate tasks.
 
+## Current execution authority — 2026-11-07
+
+**[Canonical PISRS full-API execution mandate and per-turn handoff](docs/PISRS-FULL-API-EXECUTION.md)** is the single source for current phase, full 13-collection scope, acceptance A1–A9, production protections, existing Linear issue mapping and mandatory consolidation after every Codex turn. The dated findings below remain historical evidence, not an assertion of current production completeness. This document does not approve deployment or production writes.
+
 ## Starting evidence, 2026-10-31
 
 - Reviewed public baseline: b2fd71f8568a36271607ce847d7f1a47325a1631.
