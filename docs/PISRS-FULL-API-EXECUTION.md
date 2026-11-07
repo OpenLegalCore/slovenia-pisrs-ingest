@@ -16,7 +16,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 | F1 Vsi katalogi | [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80) | Razvoj za 13 zbirk in aditivna shema pripravljen; uradne identitete 7. 11. zajete, diff proti PG izmerjen |
 | F2 Besedila + zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) | Pretočni RS/LS NPB kandidat in 404 obravnava preverjena; polni backfill NOT_RUN |
 | F3 Integriteta/Qdrant | [OLC-85](https://linear.app/openlegalcore/issue/OLC-85) | Restart testi PASS; 352 NULL act_id, 44 starih datumskih razlik, provenienca in poln Qdrant parity še odprti |
-| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; poskus povratne točke 7. 11. delno zajet, ustavljen zaradi PSI; obnova NOT_RUN |
+| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; drugi poskus povratne točke 7. 11. ustavljen pred zajemom zaradi druge aktivne PISRS poizvedbe |
 | F5 Čiščenje/predaja | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Po A1–A9; samo lastni odvečni artefakti + dokumentiran handoff ločeni Engine seji |
 
 ## Trenutno stanje — obvezno preberi pred vsakim obratom
@@ -31,7 +31,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 
 **F4 dostop:** neprivilegirani kontekst je prej prejel HTTP 407; odobreni enkratni bralni zajem prek zaščitenega servisnega profila `pisrs-ingest` je 7. 11. uspel. Obstoječi razvojni `PisrsClient.discover_*` je zajel vseh 13 zbirk brez besedil in brez produkcijskih zapisov. Zasebni dokazni paket: `/tmp/pisrs-f4-live-20261107-wfVQjA/`; SHA-256 `SHA256SUMS` = `86eba81b0d677a652aab2caa4d383e67bcb676e4eb272f5b70f58fa2e8945434`.
 
-**Naslednji EDINI operativni korak:** zagotoviti mirno pomnilniško okno z najmanj 16 GiB `MemAvailable` in PSI avg10/avg60 <1 % skozi celoten zajem; nato en nov poskus obstoječega pregledanega PG+Qdrant+checkpoint backupa in izolirane obnove. Delnega kompleta ne uporabljati za povratek.
+**Naslednji EDINI operativni korak:** zagotoviti okno brez drugih aktivnih PISRS poizvedb, z najmanj 16 GiB `MemAvailable` in PSI avg10/avg60 <1 % skozi celoten zajem; nato en nov poskus obstoječega pregledanega PG+Qdrant+checkpoint backupa in izolirane obnove. Delnega kompleta ne uporabljati za povratek.
 
 ## Po zajemu: ena produkcijska pot
 
@@ -60,3 +60,9 @@ Na koncu vsebinskega obrata dodaj **eno največ 5-vrstično datirano posodobitev
 **Dokazi:** `/home/rajko/.local/state/pisrs-f4-recovery-20261107-Rt7t5H`, SHA-256 dokaznega `ROOT_SHA256SUMS` `17088e9fe2dd82043a8dfba3fa63d1bc2e2687cca0d40707961d4d5845c42eb2`; delni backup `/var/lib/pisrs-backups/backup-20261107T161235Z` NI obnovitvena točka.
 **Produkcija:** 0 PG/Qdrant/checkpoint zapisov po izvajalniku, servis inactive, timer active; runtime imenik in pravi lock ustvarjena ter ohranjena, zaklep po prekinitvi prost. Celovitost novega kompleta UNKNOWN.
 **Naslednje:** brez ponovitve v tem obratu; zagotoviti mirno PSI okno za en nov popoln zajem in zaporedno izolirano obnovo.
+
+**7. 11. 2026, 17:15 CET, F4 drugi poskus:** `MemAvailable` in PSI pred izvedbo PASS, servis inactive, timer active; obstoječi izvajalnik se je dejansko zagnal kot root (dokaz `root-started.json`).
+**Ustavitev:** pred backupom `other active PISRS query during preflight`; `capture=NOT_RUN`, `restore=NOT_RUN`, novi backup in obnovitvena točka nista nastala. Zaganjalnikov `BLOCKED_AUTHENTICATION_NO_ROOT_START` je časovna dirka; ni dejanski vzrok.
+**Dokazi:** `/home/rajko/.local/state/pisrs-f4-recovery-20261107-LascSa`; SHA-256 dokaznega `ROOT_SHA256SUMS` `22e907bdc57ebba617c522a72213050edea55296b387fda18c994fe66d94fd61` (člani PASS, brez novega backup manifesta).
+**Produkcija:** 0 PG/Qdrant/checkpoint zapisov, 0 sprememb servisa/timerja ali runtime locka; prejšnji delni komplet ostaja nepreverjena delna kopija.
+**Naslednje:** brez ponovitve v tem obratu; za nov zajem zagotoviti okno brez drugih aktivnih PISRS poizvedb in miren PSI.
