@@ -14,7 +14,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 | --- | --- | --- |
 | F0 Produkcija | [OLC-77](https://linear.app/openlegalcore/issue/OLC-77) | Stari nightly 7. 11. PASS; naknadna celovita integriteta ni dokazana |
 | F1 Vsi katalogi | [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80) | Razvoj za 13 zbirk in aditivna shema pripravljen; uradne identitete 7. 11. zajete, diff proti PG izmerjen |
-| F2 Besedila + zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) | Pretočni RS/LS NPB kandidat in 404 obravnava preverjena; polni backfill NOT_RUN |
+| F2 Besedila + zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) | Pretočni RS/LS NPB kandidat; 60/60 stratificiranih LS NPB besedil 404; LS indeksni kontrakt in skupni strošek UNKNOWN; polni backfill NOT_RUN |
 | F3 Integriteta/Qdrant | [OLC-85](https://linear.app/openlegalcore/issue/OLC-85) | Restart testi PASS; 352 NULL act_id, 44 starih datumskih razlik, provenienca in poln Qdrant parity še odprti |
 | F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Svež usklajen PG+Qdrant+checkpoint backup in zaporedna celovita izolirana obnova 7. 11. PASS; produkcijska migracija/aktivacija ostaja HOLD |
 | F5 Čiščenje/predaja | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Po A1–A9; samo lastni odvečni artefakti + dokumentiran handoff ločeni Engine seji |
@@ -30,6 +30,8 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 **Razvojni dokazi:** 179 PASS / 3 SKIPPED v izoliranem PG; GitHub CI [42367397121](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/actions/runs/42367397121) in [42367525951](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/actions/runs/42367525951) PASS. Regresija ponovitve štirih kataloških transakcijskih mej PASS. Ni preizkusa dejanskega masovnega backfilla, ni nove produkcijske migracije.
 
 **F4 dostop:** neprivilegirani kontekst je prej prejel HTTP 407; odobreni enkratni bralni zajem prek zaščitenega servisnega profila `pisrs-ingest` je 7. 11. uspel. Obstoječi razvojni `PisrsClient.discover_*` je zajel vseh 13 zbirk brez besedil in brez produkcijskih zapisov. Zasebni dokazni paket: `/tmp/pisrs-f4-live-20261107-wfVQjA/`; SHA-256 `SHA256SUMS` = `86eba81b0d677a652aab2caa4d383e67bcb676e4eb272f5b70f58fa2e8945434`.
+
+**Embeddingi (7. 11., 21:48–21:51 CET):** 276.368 aktivnih PG chunkov se po ID/hash/model/dimenzija ujema z obstoječimi Qdrant točkami, zato jih trenutni kandidat ponovno uporabi; 20 vzorčenih vektorjev ima 3.072 dimenzij. Veljavni `make_chunks` je enak stari izdaji. Pri 95.735 kataloških LS NPB je vseh 60 naključnih vzorcev iz štirih starostnih skupin na `/besedilo/{id}` vrnilo 404; državni pozitivni kontrolni dokument 200. Koda trenutno shranjuje LS besedila v ločene tabele, vendar jih ne vektorizira; potreba in kontrakt za LS/EU indeks sta UNKNOWN. Cena vseh novih vsebin in bajti prenosov UNKNOWN, ne 0 USD. Lokalni tokenizer `cl100k_base` PASS; dokazni manifest `/home/rajko/.local/state/pisrs-embedding-cost-20261107T2052Z/SHA256SUMS`, SHA-256 `005859c4d767671f9c2ef55d4c4a935e161ad30500ebfff1ac77ddfe4b6413f6`.
 
 **Naslednji EDINI operativni korak:** lastnikova odločitev o ločeno pripravljenem produkcijskem prehodu; ta obrat je zaključil samo preverbo povratne točke in ne dovoljuje migracije ali aktivacije.
 
@@ -90,3 +92,9 @@ Na koncu vsebinskega obrata dodaj **eno največ 5-vrstično datirano posodobitev
 **Izolacija in viri:** testni PG je bil odstranjen pred zagonom testnega Qdranta; oba sta nato odstranjena, `network=none`, brez objavljenih vrat ali produkcijskih priklopov; vzorčeno PG največ 320 MiB, Qdrant največ 3,402 GiB (vrh ni izmerjen), brez ugotovljenega OOM.
 **Produkcija:** obnovitev ni pisala v produkcijski PG/Qdrant/checkpoint, nightly/Engine nespremenjena. Nova povratna točka PASS; produkcijska migracija in aktivacija HOLD.
 **Naslednje:** samo lastnikova odločitev o že pripravljenem produkcijskem prehodu; brez samodejnega nadaljevanja.
+
+**7. 11. 2026, F2 simulacija cene:** 276.368 že aktivnih chunkov ustreza implementiranemu Qdrant reuse kontraktu; dodatnih v tem konkretnem sklopu 0 in 0 USD po tarifi 0,13 USD/milijon tokenov, brez ponovnega izračuna vseh chunkov iz blokov.
+**Izmerjeno:** dva predhodno ohranjena državna NPB vzorca po `make_chunks` in `cl100k_base` vsebujeta 147 že obstoječih chunkov in 192.761 tokenov; 60 stratificiranih lokalnih NPB zahtev 404, kontrolni državni dokument 200. Vzorec ne dokazuje globalne nerazpoložljivosti.
+**Meje:** kandidat trenutno ne vektorizira `source_text_versions` za LS in nima potrjene EU besedilne poti; ni reprezentativnih uspešnih LS besedil za oceno dolžine, zato skupni novi tokeni, cena, interval in bajti UNKNOWN. Pregled Qdrant reuse ne prenaša vseh vektorjev; numerični vektorji so bili celovito preverjeni v izolirani obnovi backupa.
+**Obseg:** obstoječi LS backfill bi za 95.735 kataloških identitet potreboval do enega osnovnega `/besedilo/{id}` zahtevka na identiteto, brez retry/discovery; državne NPB identitete so že prisotne, preverba njihovih vsebin pri viru je ločena. Priporočeni so nadaljevalni tehnični paketi.
+**Produkcija:** 0 SQL/Qdrant zapisov in 0 embedding klicev; dokazni manifest SHA-256 `005859c4d767671f9c2ef55d4c4a935e161ad30500ebfff1ac77ddfe4b6413f6`. **Naslednje:** določiti LS/EU indeksni kontrakt in uradno dostopno besedilno pot.
