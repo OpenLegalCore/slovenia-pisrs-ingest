@@ -1,4 +1,6 @@
-# Acceptance tests
+# Acceptance tests — frozen after owner reset 8 November 2026
+
+**STOP:** This is a reference checklist, not an instruction to run tests or change production. See [the canonical reset and source-to-storage inventory](docs/PISRS-FULL-API-EXECUTION.md).
 
 Each result records revision, environment, time/window, checks and evidence, and is PASS,
 FAIL or UNKNOWN. Unknown coverage is not a successful completeness result.
@@ -6,6 +8,7 @@ Use the source contract verified for each collection; do not invent identities o
 
 | ID | Required evidence and success condition |
 | --- | --- |
+| **A0 Source and schema design gate** | Before any new implementation: versioned official API operation/parameter/DTO/format/identity/history matrix, direct evidence for undocumented portal routes, complete PISRS field/version/file → concrete PostgreSQL storage mapping, baseline PG/Qdrant diff, and explicit owner acceptance. **Current status: NOT PASSED; all A1–A9 assessments are frozen.** |
 | A1 Source enumeration | Independent inventories for every required collection, verified pagination/export termination, unique IDs and totals, plus cross-collection overlap. Zero unexplained missing or duplicate identities. |
 | A2 Source to PostgreSQL | Set comparison of source act/text/version IDs with stored identities. Every required item imported or individually reason-coded; source counts alone are insufficient. |
 | A3 Text fidelity | Compare returned original text/HTML and independently expected content with stored versions, blocks and chunks: no unexplained omissions, duplicated text, reordered provisions or lost tables/annexes. Include nested HTML and real-source fixtures. |
