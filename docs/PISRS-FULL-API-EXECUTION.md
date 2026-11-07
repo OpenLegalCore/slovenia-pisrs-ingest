@@ -65,6 +65,15 @@ Ne more se zaključiti po dokumentaciji ali testih, če obstaja nadaljnje neodvi
 
 ## Stanje in predaja
 
+### 2026-11-07 — neodvisni GitHub code/CI readback po F1–F3
+
+- Pregledana commita [fd83a690](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/fd83a69055b1084a3aa45d7f43cd5d7307ded7ee) (koda) in [d3d2162](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/d3d2162aed42efee20a4383e26e7514266077386) (predaja). Pregledana dejanska `pipeline.py`, `postgres_external.py`, `postgres_external_text.py`, migracija in novi testi. Novi PG katalogi niso nameščeni, stari nightly je ostal aktivna produkcija po zadnjem host poročilu. **Produkcijske spremembe tega pregleda: 0.**
+- **Pomemben CI FAIL:** PR #13 merge-context GitHub Actions [run 42349871712](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/actions/runs/42349871712) in [run 42350119814](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/actions/runs/42350119814) sta `failure` na `Lint`: `ruff format --check` zahteva preformatiranje `tests/test_extended_pg.py` približno vrstice 121–126. Lokalni 175 PASS/3 SKIPPED ostajajo datirani lokalni dokaz, **ne CI PASS**. Potreben minimalen popravek formatiranja.
+- **Odprta regresija:** `run_nightly()` zapisuje ločeno `external.synchronize(...)`, `catalogs.synchronize(...)` in `external.synchronize_state_raw(...)`; test potrjuje rollback **znotraj** transakcije, ne ponovitve po prekinitvi **med** njimi. Dokazati, da ponovni zagon po vsakem mejnem commitu konvergira, brez izgubljenih identitet, napačnega checkpointa in nepotrebnih embeddingov.
+- **Dovoljeno nadaljevanje:** ciljni izolirani fault-injection + formatiranje testne datoteke, brez novega parserja/servisa, brez produkcijskih zapisov ali aktivacije; po uspehu GitHub CI readback in ista konsolidacija. Varen čistilni zaključek samo za lastne nove začasne artefakte. **F1–F3 še niso produkcijsko sprejeti, F4 HOLD.**
+- **Artefakti:** ta pregled ni ustvaril lokalnih Medo artefaktov in ni ničesar brisal; diskovna delta na Medu ni bila merjena.
+
+
 ### 2026-11-07 08:04 CET / 07:04 UTC — F1–F3 razvojni kandidat (brez produkcijske aktivacije)
 
 - **Vir in identiteta:** obstoječa veja `codex/pisrs-state-catalogs-20261031`, izhodišče `bee66e92248d7d6bffcc3e1695505efe78bba737`; stara produkcijska izdaja po zadnjem potrjenem poročilu `94c5b2a4182bd3f6b0c17ecf386defd4e464195f`. Korenski lokalni `main` je ostal nedotaknjen; delo je v ločenem worktreeju `/tmp/pisrs-full-api-20261107`.
