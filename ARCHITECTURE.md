@@ -1,52 +1,24 @@
-# Existing architecture
+# PISRS — dejanska arhitektura, brez nove platforme
 
-Verified against public baseline b2fd71f8568a36271607ce847d7f1a47325a1631.
-This describes implementation, not the current host installation or future source adapters.
+Ta dokument je **tehnična referenca**, ne načrt dodatnega razvoja. Za trenutno stanje glej [kanonični mandat](docs/PISRS-FULL-API-EXECUTION.md). Obstoječa produkcija `94c5b2a4182bd3f6b0c17ecf386defd4e464195f` se razlikuje od razvojnega 13-zbirčnega kandidata; pred posegom preveri nameščeno izdajo.
 
-## Data flow
+## Obstoječi podatkovni tok
 
-1. cli.py validates configuration and acquires the shared mutation lock for nightly.
-2. checkpoint.py reads the last successful boundary and fixes the run end.
-3. client.py enumerates four state catalogs and /npb; postgres.py synchronizes metadata.
-4. postgres_documents.py selects missing or metadata-updated NPB documents that have a
-   recognized SOP and version label. client.py fetches /besedilo/{text_id}; models.py parses HTML.
-5. PostgreSQL stores the original returned HTML, normalized text and parsed blocks by version.
-6. postgres_chunks.py processes touched SOPs, selects the highest NPB rank (text_id tie-break),
-   creates chunks for that version and deactivates older existing chunks.
-7. pipeline.py reuses matching vectors or obtains embeddings, writes Qdrant payloads/vectors
-   and records upload state. The checkpoint advances only after the interval succeeds.
+`PisrsClient` → katalogi in `/besedilo/{id}` → `PostgresBoundary` → različice/HTML/bloki/chunki → obstoječi `pisrs_current` v Qdrantu (le pogodbeno indeksirani chunki) → checkpoint po uspehu. `pipeline.run_nightly` ostaja enotna pot. Za podrobnosti se uporabi **koda**, ne prepis stare implementacije.
 
-## Authorities and identities
+## Identitete in kompatibilnost
 
-| Layer | Existing contract |
+| Področje | Kontrakt |
 | --- | --- |
-| Acts | register_id; required moped_id; SOP is a linkage value, not a globally unique act key. |
-| NPB / versions | Numeric text_id; PostgreSQL version and catalog IDs are local relational keys. |
-| Blocks | (version_id, block_index). |
-| Chunks | (collection_name, text_id, chunk_index); SHA-256 of chunk text. |
-| Qdrant | UUIDv5(NAMESPACE_URL, pisrs_current:{text_id}:{chunk_index}). |
-| Vectors | text-embedding-3-large, 3072 dimensions, Cosine; collection pisrs_current. |
-| State | PostgreSQL authoritative columns; Qdrant derived; atomic success-only checkpoint. |
+| Državni akti | `register_id`, `moped_id`; SOP ni globalno enoličen ključ |
+| Državne NPB | `text_id`; verzije v `pisrs.act_text_versions`, bloki v `pisrs.act_text_blocks` |
+| EU | ločen prostor identitet `EU`, CELEX |
+| Lokalni akti | ločen prostor `LS_ACT` (lokalni id / `mopedPlusId` / EDA) |
+| Lokalna NPB | ločen prostor `LS_NPB`, dvoumne SOP zveze niso ugibane |
+| Razvojna aditivna PG migracija | `docs/sql/001_source_catalog_items.sql`: `source_catalog_items`, `source_text_versions`, `state_raw_variants` — **še ni nameščena v produkciji** |
+| Obstoječi Qdrant | `pisrs_current`, UUIDv5 po `(collection_name,text_id,chunk_index)`, `text-embedding-3-large`, 3072/Cosine |
+| Izvor resnice | PostgreSQL; Qdrant je izvedeni indeks; polna zgodovina v PG ni avtomatično celoten Qdrant vektorski arhiv |
 
-The relevant tables are pisrs.act_sync_catalog, acts, npb_catalog, act_text_versions,
-act_text_blocks and embedding_chunks. Legacy laws participates in act-status reconciliation.
-Stored embedding_chunks.payload JSON and payloads reconstructed from columns are distinct
-representations and require separate integrity checks.
+Razvojni `PisrsClient` pozna 7 državnih katalogov, `/npb`, `/predpis-eu`, tri `/akt-ls/*` in `/npb-ls`. `/seznam` je ločeno opažanje, ne samodejni nov akt. EU/lokalno besedilno in zgodovinsko popolnost je treba dokazati iz uradnega vira.
 
-## Existing limits
-
-- The three requested additional state catalogs have no calls in this baseline.
-  Dedicated EU, municipal and Gazette adapters are absent.
-- Metadata discovery is broader than text import. Unrecognized SOP/version metadata is not
-  selected by pending(); exclusions and missing text must be counted explicitly.
-- PostgreSQL retains multiple imported text IDs; pisrs_current is not a complete vector archive
-  of every historical version. Highest NPB rank does not itself prove legal applicability.
-- Reconciliation compares reconstructed PostgreSQL payloads with Qdrant and scans Qdrant IDs.
-  It does not independently prove upstream completeness, stored-JSON correctness, parser fidelity
-  or numerical vector provenance. Dry-run can exit zero while reporting differences.
-- Discovery completeness and HTML extraction require additional regression/real-source validation.
-
-Source references: [client](src/pisrs_ingest/client.py),
-[pipeline](src/pisrs_ingest/pipeline.py), [models](src/pisrs_ingest/models.py),
-[PostgreSQL](src/pisrs_ingest/postgres.py), [documents](src/pisrs_ingest/postgres_documents.py),
-[chunks](src/pisrs_ingest/postgres_chunks.py), [Qdrant](src/pisrs_ingest/qdrant.py).
+Stari nightly, obstoječi API token, Postgres/Qdrant in Engine so **delujoče produkcijske odvisnosti**; ničesar ne nadomestiš ali preusmeriš zaradi kandidatne kode. Za integriteto in sprejem glej [A1–A9](ACCEPTANCE_TESTS.md).
