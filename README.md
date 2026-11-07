@@ -1,6 +1,6 @@
 # OpenLegalCore Slovenian Legislation Ingest (PISRS)
 
-> **Scope note (development branch):** This README documents the published **v0.1.0** component and its historical August 2026 acceptance; it does **not** certify 13-source API completeness or the unactivated November 2026 development candidate. Current development scope and operational state: [PISRS execution mandate](docs/PISRS-FULL-API-EXECUTION.md). This branch note is not a production release claim.
+> **Scope and freeze note (8 November 2026):** This README documents the published **v0.1.0** component and historical August 2026 acceptance; it does **not** establish full PISRS API/text/history completeness. The November 2026 13-catalog upgrade was reported deployed, but its source-to-storage design remains unverified. The owner **stopped further development** pending an official API/DTO inventory, exact PostgreSQL mapping and evidence-based gap review. See [the canonical RESET record](docs/PISRS-FULL-API-EXECUTION.md). The current production mode is reported as `nightly --catalogs-only`; no new embedding or text ingest is authorized.
 
 `pisrs-ingest` is the Slovenian legislation-ingest component of
 [OpenLegalCore](https://github.com/OpenLegalCore). It discovers legislation metadata and
