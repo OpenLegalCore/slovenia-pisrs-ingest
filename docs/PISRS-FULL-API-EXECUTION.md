@@ -16,7 +16,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 | F1 Vsi katalogi | [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80) | Razvoj za 13 zbirk in aditivna shema pripravljen; uradne identitete 7. 11. zajete, diff proti PG izmerjen |
 | F2 Besedila + zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) | Pretočni RS/LS NPB kandidat in 404 obravnava preverjena; polni backfill NOT_RUN |
 | F3 Integriteta/Qdrant | [OLC-85](https://linear.app/openlegalcore/issue/OLC-85) | Restart testi PASS; 352 NULL act_id, 44 starih datumskih razlik, provenienca in poln Qdrant parity še odprti |
-| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; novi pregled 7. 11. ob 19:03 blokiran pred zajemom zaradi RAM <16 GiB |
+| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; pri ~8 GiB MemAvailable ni dokazano varne celovite izolirane obnove z obstoječima sočasnima 2/8 GiB omejitvama |
 | F5 Čiščenje/predaja | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Po A1–A9; samo lastni odvečni artefakti + dokumentiran handoff ločeni Engine seji |
 
 ## Trenutno stanje — obvezno preberi pred vsakim obratom
@@ -31,7 +31,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 
 **F4 dostop:** neprivilegirani kontekst je prej prejel HTTP 407; odobreni enkratni bralni zajem prek zaščitenega servisnega profila `pisrs-ingest` je 7. 11. uspel. Obstoječi razvojni `PisrsClient.discover_*` je zajel vseh 13 zbirk brez besedil in brez produkcijskih zapisov. Zasebni dokazni paket: `/tmp/pisrs-f4-live-20261107-wfVQjA/`; SHA-256 `SHA256SUMS` = `86eba81b0d677a652aab2caa4d383e67bcb676e4eb272f5b70f58fa2e8945434`.
 
-**Naslednji EDINI operativni korak:** zagotoviti okno brez drugih aktivnih PISRS poizvedb, z najmanj 16 GiB `MemAvailable` in PSI avg10/avg60 <1 % skozi celoten zajem; nato en nov poskus obstoječega pregledanega PG+Qdrant+checkpoint backupa in izolirane obnove. Delnega kompleta ne uporabljati za povratek.
+**Naslednji EDINI operativni korak:** dokazati varno omejitev porabe pomnilnika obstoječega izoliranega restore pri dejansko razpoložljivi kapaciteti; 16 GiB ni intrinzična zahteva pretočnega zajema, vendar samo znižanje praga ne dokazuje varnosti obnove. Delnega kompleta ne uporabljati za povratek.
 
 ## Po zajemu: ena produkcijska pot
 
@@ -72,3 +72,9 @@ Na koncu vsebinskega obrata dodaj **eno največ 5-vrstično datirano posodobitev
 **Rezultat:** RAM varovalka FAIL; backup in izolirana obnova NOT_RUN, novi identifikator in kontrolne vsote ne obstajajo.
 **Produkcija:** 0 sprememb v tem obratu; stare delne kopije ostajajo nedotaknjene.
 **Naslednje:** ob dejansko razpoložljivih >=16 GiB in brez sočasnih PISRS poizvedb enkrat izvesti obstoječi pregledani postopek.
+
+**7. 11. 2026, 19:07 CET, F4 nizki RAM:** `MemAvailable=7,95 GiB`, `SwapFree≈67,8 MiB`, PSI avg10 0,09 %; disk 768,59 GB na voljo. Brez backup/restore zagona v tem obratu.
+**Dokaz meje:** pregledani runbook ne zahteva 16 GiB za pretočni capture; ta prag je dodal zasebni supervisor. Pregledani restore hkrati ohranja PG (2 GiB cap) in zažene Qdrant (8 GiB cap).
+**Neznanka:** uspešni restore 31. 10. je imel 22,58 GiB `MemAvailable` pred obnovo, vendar poročilo izrecno ne meri vršne porabe; iz kap ni mogoče sklepati o dejanski porabi.
+**Produkcija:** 0 sprememb, brez novega backup manifesta ali obnovitvene točke; predhodni delni backup ostaja nedotaknjen.
+**Naslednje:** dokazati varnost obstoječega restore pri trenutni kapaciteti, preden se spremeni samo numerični RAM guard ali začne nov zajem.
