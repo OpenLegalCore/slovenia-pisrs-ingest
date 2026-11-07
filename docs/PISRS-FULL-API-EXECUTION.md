@@ -33,7 +33,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 
 **Embeddingi (7. 11., 21:48–21:51 CET):** 276.368 aktivnih PG chunkov se po ID/hash/model/dimenzija ujema z obstoječimi Qdrant točkami, zato jih trenutni kandidat ponovno uporabi; 20 vzorčenih vektorjev ima 3.072 dimenzij. Veljavni `make_chunks` je enak stari izdaji. Pri 95.735 kataloških LS NPB je vseh 60 naključnih vzorcev iz štirih starostnih skupin na `/besedilo/{id}` vrnilo 404; državni pozitivni kontrolni dokument 200. Koda trenutno shranjuje LS besedila v ločene tabele, vendar jih ne vektorizira; potreba in kontrakt za LS/EU indeks sta UNKNOWN. Cena vseh novih vsebin in bajti prenosov UNKNOWN, ne 0 USD. Lokalni tokenizer `cl100k_base` PASS; dokazni manifest `/home/rajko/.local/state/pisrs-embedding-cost-20261107T2052Z/SHA256SUMS`, SHA-256 `005859c4d767671f9c2ef55d4c4a935e161ad30500ebfff1ac77ddfe4b6413f6`.
 
-**Naslednji EDINI operativni korak:** lastnikova odločitev o ločeno pripravljenem produkcijskem prehodu; ta obrat je zaključil samo preverbo povratne točke in ne dovoljuje migracije ali aktivacije.
+**Aktualna odobritev:** lastnik je odobril aditivno migracijo, začetni uvoz vseh 13 katalogov in usklajen preklop urnika z mejo 0 novih embedding klicev. Izvedba je vezana na nespremenjeno produkcijsko stanje glede na preverjeni backup 7. 11. Kataloški način ne izvaja besedil, Qdranta ali checkpointa; polni besedilni nightly in lokalna besedilna pot ostajata izven tega posega.
 
 ## Po zajemu: ena produkcijska pot
 

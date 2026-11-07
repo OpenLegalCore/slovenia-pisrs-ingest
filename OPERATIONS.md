@@ -11,6 +11,14 @@ To ni seznam razvojnih opravil. **Edino trenutno navodilo je [kanonični mandat]
 
 ## Edini produkcijski prehod (ločena odobritev)
 
+Za odobreno kataloško nadgradnjo uporabi `catalog-import --apply --expect-identities SHA256`.
+Privzeti `catalog-import` je dry-run; odtis vključuje identitete in provenienco vseh 13 zbirk.
+`nightly --catalogs-only` uporablja iste adapterje in pravi aplikacijski zaklep, vendar ne
+prenaša besedil, ne spreminja Qdranta ali checkpointa ter ne odpira embedding odjemalca.
+Ta izrecni način je potreben za urnik pod mejo 0 embedding klicev; obdelava državnih besedil
+se nadaljuje šele z ločeno odločitvijo za polni nightly. Samodejna lokalna besedilna pot je
+izključena do potrditve uradne poti; lokalni HTTP 404 ni dokaz neobstoja dokumenta.
+
 1. Pregledan nespremenljiv kandidat + aktualen vir→PG diff + izmerjena količina/stroški in združljivost s starim nightlyjem; brez tega HOLD.
 2. Pred odobrenim zapisom: dejanski lock/odločitev o sočasnem nightlyju, sveža skupaj obnovljiva PG/Qdrant/checkpoint zaščita, preizkušen povratek in potrjeno izvajalno okno. Ne uporabljaj 16-GiB praga za običajne bralne operacije; ta meja izvira iz sočasnega backupa+izolirane obnove.
 3. Po **posebni** odobritvi migracija in paketna sinhronizacija, brez prekinitve Engine povezljivosti; sledijo source→PG→Qdrant readback, checkpoint ter dejanski naslednji timer-triggered nightly.

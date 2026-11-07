@@ -30,7 +30,13 @@ from .config import (
 from .embeddings import EmbeddingClient
 from .locking import ApplicationLock, LockBusyError
 from .models import EMBEDDING_DIMENSIONS, EMBEDDING_MODEL
-from .pipeline import PipelineError, apply_reconciliation, plan_reconciliation, run_nightly
+from .pipeline import (
+    PipelineError,
+    apply_reconciliation,
+    plan_reconciliation,
+    run_catalog_import,
+    run_nightly,
+)
 from .postgres import PostgresBoundary, PostgresDatabase
 from .qdrant import QdrantStore
 
@@ -44,7 +50,17 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="pisrs-ingest")
     subcommands = result.add_subparsers(dest="command", required=True)
     subcommands.add_parser("preflight", help="read-only configuration and service contract check")
-    subcommands.add_parser("nightly", help="run one checkpointed ingest interval")
+    nightly = subcommands.add_parser("nightly", help="run one checkpointed ingest interval")
+    nightly.add_argument(
+        "--catalogs-only",
+        action="store_true",
+        help="13 catalogs only; no texts, embeddings, Qdrant or checkpoint writes",
+    )
+    catalog_import = subcommands.add_parser("catalog-import", help="synchronize all 13 catalogs")
+    import_mode = catalog_import.add_mutually_exclusive_group()
+    import_mode.add_argument("--dry-run", action="store_true")
+    import_mode.add_argument("--apply", action="store_true")
+    catalog_import.add_argument("--expect-identities", help="approved identity/provenance SHA-256")
     reconcile = subcommands.add_parser("reconcile", help="compare or repair Qdrant payload only")
     mode = reconcile.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="report changes without writes")
@@ -69,6 +85,15 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
         settings = load_settings(config_command, environ)
         if args.command == "preflight":
             return _preflight(settings)
+        if args.command == "catalog-import":
+            require_external(settings)
+            if args.apply:
+                require_writes(settings)
+                if not args.expect_identities:
+                    raise ConfigError("catalog-import apply requires --expect-identities")
+                with ApplicationLock(settings.lock_path):
+                    return _catalog_import(settings, apply=True, expected=args.expect_identities)
+            return _catalog_import(settings, apply=False)
         if args.command == "catalog-sync":
             require_external(settings)
             if args.apply:
@@ -89,6 +114,8 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
             require_external(settings)
             require_writes(settings)
             with ApplicationLock(settings.lock_path):
+                if args.catalogs_only:
+                    return _catalog_import(settings, apply=True)
                 return _nightly(settings)
         if args.apply:
             require_writes(settings)
@@ -108,6 +135,23 @@ def main(argv: Iterable[str] | None = None, environ: Mapping[str, str] | None = 
         detail = "" if args.command == "catalog-sync" else f": {exc}"
         print(f"error: {type(exc).__name__}{detail}", file=sys.stderr)
         return EXIT_ERROR
+
+
+def _catalog_import(settings: Settings, *, apply: bool, expected: str | None = None) -> int:
+    assert settings.portal_base_url is not None and settings.portal_token is not None
+    postgres = PostgresBoundary.create(settings.database_dsn, settings.collection)
+    with postgres.database.connect(read_only=True) as connection:
+        row = connection.execute("SELECT current_database() AS database").fetchone()
+        if row["database"] != settings.expected_database:
+            raise ConfigError("catalog-import database identity differs")
+    result = run_catalog_import(
+        client=PisrsClient(settings.portal_base_url, settings.portal_token),
+        postgres=postgres,
+        apply=apply,
+        expected_identities=expected,
+    )
+    print(json.dumps(result, sort_keys=True), flush=True)
+    return 0
 
 
 def _catalog_sync(

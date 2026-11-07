@@ -642,13 +642,12 @@ def test_measured_404_is_reason_coded_and_does_not_block_later_document() -> Non
     assert checkpoint.advanced == [checkpoint.end]
 
 
-def test_local_text_backfill_uses_existing_parser_without_embedding_or_qdrant() -> None:
+def test_unverified_local_text_route_is_never_queried_or_recorded_unavailable() -> None:
     postgres = DocumentRunPostgres()
     postgres.documents.pending = lambda limit, since: []
-    local = NpbDocument(9, "Local version", None, None, None, None, {"id": 9})
     imported: list[int] = []
     postgres.external_text = SimpleNamespace(
-        pending=lambda limit: [local],
+        pending=lambda limit: pytest.fail("unverified local text route was opened"),
         synchronize=lambda document, parsed, source_url: imported.append(document.text_id),
         record_unavailable=lambda document, source_url: pytest.fail("unexpected 404"),
     )
@@ -670,8 +669,8 @@ def test_local_text_backfill_uses_existing_parser_without_embedding_or_qdrant() 
         max_embedding_input_bytes=100,
         now=checkpoint.end,
     )
-    assert stats.local_texts_imported == 1
-    assert imported == [9]
+    assert stats.local_texts_imported == stats.local_texts_unavailable == 0
+    assert imported == []
     assert embedder.calls == qdrant.upsert_calls == qdrant.payload_calls == 0
     assert checkpoint.advanced == [checkpoint.end]
 

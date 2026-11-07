@@ -141,7 +141,7 @@ def load_settings(command: str, environ: Mapping[str, str] | None = None) -> Set
 
     source = os.environ if environ is None else environ
     required = NIGHTLY_REQUIRED if command in {"nightly", "preflight"} else BASE_REQUIRED
-    if command == "catalog-sync":
+    if command in {"catalog-sync", "catalog-import"}:
         required = BASE_REQUIRED + ("PISRS_PORTAL_BASE_URL", "PISRS_API_TOKEN")
     values = {name: _required(source, name) for name in required}
 
@@ -170,7 +170,7 @@ def load_settings(command: str, environ: Mapping[str, str] | None = None) -> Set
     if command == "preflight" and settings.allow_writes:
         raise ConfigError("preflight requires PISRS_ALLOW_WRITES=0")
 
-    if command == "catalog-sync":
+    if command in {"catalog-sync", "catalog-import"}:
         return Settings(
             **{
                 name: getattr(settings, name)

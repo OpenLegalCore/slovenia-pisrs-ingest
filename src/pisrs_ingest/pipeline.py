@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -101,6 +102,49 @@ class ReconcilePlan:
         }
 
 
+def run_catalog_import(
+    *, client: Any, postgres: Any, apply: bool, expected_identities: str | None = None
+) -> dict[str, Any]:
+    """Discover all 13 catalogs before writes; never touch texts, vectors or checkpoint."""
+    acts = client.discover_acts()
+    npbs = client.discover_npbs()
+    eu_acts = client.discover_eu_acts()
+    local_acts = client.discover_local_acts()
+    local_npbs = client.discover_local_npbs()
+    digest = hashlib.sha256()
+    groups = (
+        ("RS_ACT", acts, lambda x: x.register_id, lambda x: x.seen_in_endpoints),
+        ("RS_NPB", npbs, lambda x: x.text_id, lambda x: ("/npb",)),
+        ("EU", eu_acts, lambda x: x.source_id, lambda x: ("/predpis-eu",)),
+        ("LS_ACT", local_acts, lambda x: x.source_id, lambda x: x.seen_in_endpoints),
+        ("LS_NPB", local_npbs, lambda x: x.source_id, lambda x: ("/npb-ls",)),
+    )
+    for namespace, items, identity, endpoints in groups:
+        for item in sorted(items, key=lambda x: str(identity(x))):
+            record = [namespace, str(identity(item)), sorted(endpoints(item))]
+            digest.update((json.dumps(record, separators=(",", ":")) + "\n").encode())
+    identity_sha256 = digest.hexdigest()
+    if expected_identities is not None and identity_sha256 != expected_identities:
+        raise PipelineError("catalog identity/provenance set differs from approved inventory")
+    if apply:
+        postgres.external.synchronize([*eu_acts, *local_acts, *local_npbs])
+        postgres.catalogs.synchronize(acts, npbs)
+        postgres.external.synchronize_state_raw(acts)
+    return {
+        "acts_discovered": len(acts),
+        "npbs_discovered": len(npbs),
+        "eu_acts_discovered": len(eu_acts),
+        "local_acts_discovered": len(local_acts),
+        "local_npbs_discovered": len(local_npbs),
+        "identity_sha256": identity_sha256,
+        "mode": "apply" if apply else "dry-run",
+        "text_requests": 0,
+        "embedding_calls": 0,
+        "qdrant_writes": 0,
+        "checkpoint_writes": 0,
+    }
+
+
 def run_nightly(
     *,
     client: Any,
@@ -123,20 +167,15 @@ def run_nightly(
         interval_start=interval.start.isoformat(), interval_end=interval.end.isoformat()
     )
 
-    acts = client.discover_acts()
-    npbs = client.discover_npbs()
-    eu_acts = client.discover_eu_acts()
-    local_acts = client.discover_local_acts()
-    local_npbs = client.discover_local_npbs()
-    stats.acts_discovered = len(acts)
-    stats.npbs_discovered = len(npbs)
-    stats.eu_acts_discovered = len(eu_acts)
-    stats.local_acts_discovered = len(local_acts)
-    stats.local_npbs_discovered = len(local_npbs)
-    # All source contracts must pass before any catalog write begins.
-    postgres.external.synchronize([*eu_acts, *local_acts, *local_npbs])
-    postgres.catalogs.synchronize(acts, npbs)
-    postgres.external.synchronize_state_raw(acts)
+    catalogs = run_catalog_import(client=client, postgres=postgres, apply=True)
+    for name in (
+        "acts_discovered",
+        "npbs_discovered",
+        "eu_acts_discovered",
+        "local_acts_discovered",
+        "local_npbs_discovered",
+    ):
+        setattr(stats, name, catalogs[name])
 
     if max_documents < 1:
         raise PipelineError("PISRS_MAX_DOCUMENTS_PER_RUN must be positive")
@@ -187,31 +226,8 @@ def run_nightly(
             )
     stats.documents_failed = len(failures)
 
-    local_capacity = max_documents - len(pending)
-    local_with_lookahead = postgres.external_text.pending(local_capacity + 1)
-    stats.backlog_remaining |= len(local_with_lookahead) > local_capacity
-    for document in local_with_lookahead[:local_capacity]:
-        phase = "local_fetch"
-        try:
-            html = client.fetch_text(document.text_id)
-            phase = "local_parse"
-            parsed = parse_html(html)
-            phase = "local_postgres_persist"
-            postgres.external_text.synchronize(
-                document, parsed, client.source_url(document.text_id)
-            )
-            stats.local_texts_imported += 1
-        except HttpError as exc:
-            if exc.status_code == 404:
-                postgres.external_text.record_unavailable(
-                    document, client.source_url(document.text_id)
-                )
-                stats.local_texts_unavailable += 1
-                continue
-            failures.append(DocumentFailure(document.text_id, phase, type(exc).__name__))
-        except Exception as exc:
-            failures.append(DocumentFailure(document.text_id, phase, type(exc).__name__))
-    stats.documents_failed = len(failures)
+    # /besedilo/{id} is documented for state NPB. Local text routing is unverified;
+    # local catalogs must not cause requests or persist misleading HTTP-404 absence.
 
     touched_sops = postgres.chunks.touched_sops(interval.start)
     stats.sops_touched = len(touched_sops)
