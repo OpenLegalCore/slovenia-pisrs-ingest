@@ -16,7 +16,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 | F1 Vsi katalogi | [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80) | Razvoj za 13 zbirk in aditivna shema pripravljen; uradne identitete 7. 11. zajete, diff proti PG izmerjen |
 | F2 Besedila + zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) | Pretočni RS/LS NPB kandidat in 404 obravnava preverjena; polni backfill NOT_RUN |
 | F3 Integriteta/Qdrant | [OLC-85](https://linear.app/openlegalcore/issue/OLC-85) | Restart testi PASS; 352 NULL act_id, 44 starih datumskih razlik, provenienca in poln Qdrant parity še odprti |
-| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; drugi poskus povratne točke 7. 11. ustavljen pred zajemom zaradi druge aktivne PISRS poizvedbe |
+| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; novi pregled 7. 11. ob 19:03 blokiran pred zajemom zaradi RAM <16 GiB |
 | F5 Čiščenje/predaja | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Po A1–A9; samo lastni odvečni artefakti + dokumentiran handoff ločeni Engine seji |
 
 ## Trenutno stanje — obvezno preberi pred vsakim obratom
@@ -66,3 +66,9 @@ Na koncu vsebinskega obrata dodaj **eno največ 5-vrstično datirano posodobitev
 **Dokazi:** `/home/rajko/.local/state/pisrs-f4-recovery-20261107-LascSa`; SHA-256 dokaznega `ROOT_SHA256SUMS` `22e907bdc57ebba617c522a72213050edea55296b387fda18c994fe66d94fd61` (člani PASS, brez novega backup manifesta).
 **Produkcija:** 0 PG/Qdrant/checkpoint zapisov, 0 sprememb servisa/timerja ali runtime locka; prejšnji delni komplet ostaja nepreverjena delna kopija.
 **Naslednje:** brez ponovitve v tem obratu; za nov zajem zagotoviti okno brez drugih aktivnih PISRS poizvedb in miren PSI.
+
+**7. 11. 2026, 19:03 CET, F4 predpogoj:** `MemAvailable=7,526 GiB`, primanjkljaj 8,474 GiB do nespremenjene 16 GiB meje; PSI avg10 0,05 %, avg60 0,02 %; disk 768,81 GB na voljo.
+**Sistem:** `pisrs-ingest.service` inactive/dead, timer active/waiting, naslednji zagon 8. 11. ob 03:00 CET; v omejeni kontroli ni bilo najdenega servisnega zapisovalnega procesa.
+**Rezultat:** RAM varovalka FAIL; backup in izolirana obnova NOT_RUN, novi identifikator in kontrolne vsote ne obstajajo.
+**Produkcija:** 0 sprememb v tem obratu; stare delne kopije ostajajo nedotaknjene.
+**Naslednje:** ob dejansko razpoložljivih >=16 GiB in brez sočasnih PISRS poizvedb enkrat izvesti obstoječi pregledani postopek.
