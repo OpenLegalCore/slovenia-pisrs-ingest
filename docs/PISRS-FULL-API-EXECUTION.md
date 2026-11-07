@@ -16,14 +16,14 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 | F1 Vsi katalogi | [OLC-79](https://linear.app/openlegalcore/issue/OLC-79), [OLC-80](https://linear.app/openlegalcore/issue/OLC-80) | Razvoj za 13 zbirk in aditivna shema pripravljen; uradne identitete 7. 11. zajete, diff proti PG izmerjen |
 | F2 Besedila + zgodovina | [OLC-82](https://linear.app/openlegalcore/issue/OLC-82) | Pretočni RS/LS NPB kandidat in 404 obravnava preverjena; polni backfill NOT_RUN |
 | F3 Integriteta/Qdrant | [OLC-85](https://linear.app/openlegalcore/issue/OLC-85) | Restart testi PASS; 352 NULL act_id, 44 starih datumskih razlik, provenienca in poln Qdrant parity še odprti |
-| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | HOLD pred produkcijskim zapisom; pri ~8 GiB MemAvailable ni dokazano varne celovite izolirane obnove z obstoječima sočasnima 2/8 GiB omejitvama |
+| F4 Izvedba in sprejem | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Svež usklajen PG+Qdrant+checkpoint backup 7. 11. PASS; izolirana obnova ustavljena zaradi dejanskega pomnilniškega pritiska, zato obnovljivost nove točke UNKNOWN in produkcijski zapis HOLD |
 | F5 Čiščenje/predaja | [OLC-83](https://linear.app/openlegalcore/issue/OLC-83) | Po A1–A9; samo lastni odvečni artefakti + dokumentiran handoff ločeni Engine seji |
 
 ## Trenutno stanje — obvezno preberi pred vsakim obratom
 
 **Razvojni repozitorij/veja:** `OpenLegalCore/slovenia-pisrs-ingest`, `codex/pisrs-state-catalogs-20261031`. Zadnji razvojni in dokumentacijski dokazi: [koda db0f969](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/db0f969e19c39fd4ce18599ad185f212b316cb6f), [F4 izmera 2a6ad19](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/2a6ad19aab7a2efbf32fdc3fd1fca81b0130a71f), [blokada 8511293](https://github.com/OpenLegalCore/slovenia-pisrs-ingest/commit/851129325e73eb2263b801631198a6cd9b5801ff). Vedno preberi dejanski HEAD, ne domnevaj.
 
-**Produkcija:** Medo, stara izdaja `94c5b2a4182bd3f6b0c17ecf386defd4e464195f`. Zadnji potrjeni nightly **7. 11. 03:00:07–03:02:59 CET, exit 0**, naslednji načrtovan 8. 11. 03:00; timer ACTIVE ob F4 pregledu. PG 65.308 aktov, 71.649 državnih NPB, 281.338 državnih chunkov. Qdrant `pisrs_current`: green, 281.338 točk, 3072/Cosine. Števci in green niso polna skladnost. Tri nove PG tabele **ne obstajajo v produkciji**. Checkpoint in sveži backup iz neprivilegiranega konteksta **UNKNOWN**. Star backup 31. 10. je zgodovinski, ne sveža zaščita. Nobena produkcijska sprememba razvojnih obratov ni izvedena.
+**Produkcija:** Medo, stara izdaja `94c5b2a4182bd3f6b0c17ecf386defd4e464195f`. Zadnji potrjeni nightly **7. 11. 03:00:07–03:02:59 CET, exit 0**, naslednji načrtovan 8. 11. 03:00; timer ACTIVE ob F4 pregledu. PG 65.308 aktov, 71.649 državnih NPB, 281.338 državnih chunkov. Qdrant `pisrs_current`: green, 281.338 točk, 3072/Cosine. Števci in green niso polna skladnost. Tri nove PG tabele **ne obstajajo v produkciji**. Svež PG+Qdrant+checkpoint komplet 7. 11. ima preverjene hashe in izvorne prstne odtise, vendar njegova izolirana obnovljivost še ni dokazana. Star backup 31. 10. ostaja zgodovinsko preverjena obnovitvena točka. Nobena produkcijska podatkovna ali servisna sprememba razvojnih obratov ni izvedena.
 
 **Sveži vir (7. 11., 13:39–13:44 CET):** 65.308 državnih aktov, 71.649 NPB, 80.128 EU CELEX, 125.012 LS aktov in 95.735 LS NPB. Proti produkcijskemu PG posnetku istega dne (12:45 CET): obe državni identitetni množici PASS (0 manjkajočih/odvečnih); **300.875 EU/LS kataloških identitet** nima ciljne tabele v produkciji; **31.785 parov državne provenience** manjka v obeh kataloških tabelah (ista množica, brez podvajanja). PG ima 352 NULL `act_id`; po svežih državnih identitetah ima vsak enega SOP kandidata. Pri LS NPB je 6.744 nerešenih povezav (937 več kandidatov, 5.390 brez kandidata, 417 brez SOP). Besedila, zgodovinska popolnost, Qdrant in potrebni embeddingi ostajajo UNKNOWN; kataloške identitete niso besedila.
 
@@ -31,7 +31,7 @@ Dokončati **en** obstoječi PISRS ingest: celoten uradno dostopen API (7 držav
 
 **F4 dostop:** neprivilegirani kontekst je prej prejel HTTP 407; odobreni enkratni bralni zajem prek zaščitenega servisnega profila `pisrs-ingest` je 7. 11. uspel. Obstoječi razvojni `PisrsClient.discover_*` je zajel vseh 13 zbirk brez besedil in brez produkcijskih zapisov. Zasebni dokazni paket: `/tmp/pisrs-f4-live-20261107-wfVQjA/`; SHA-256 `SHA256SUMS` = `86eba81b0d677a652aab2caa4d383e67bcb676e4eb272f5b70f58fa2e8945434`.
 
-**Naslednji EDINI operativni korak:** dokazati varno omejitev porabe pomnilnika obstoječega izoliranega restore pri dejansko razpoložljivi kapaciteti; 16 GiB ni intrinzična zahteva pretočnega zajema, vendar samo znižanje praga ne dokazuje varnosti obnove. Delnega kompleta ne uporabljati za povratek.
+**Naslednji EDINI operativni korak:** izolirano preveriti že izdelani sveži komplet z zaporedno obnovo, ko je mogoče ohraniti varnostno mejo PSI; ne ponavljati zajema in ne uporabljati kompleta za produkcijski povratek, dokler obnova ni PASS.
 
 ## Po zajemu: ena produkcijska pot
 
@@ -78,3 +78,9 @@ Na koncu vsebinskega obrata dodaj **eno največ 5-vrstično datirano posodobitev
 **Neznanka:** uspešni restore 31. 10. je imel 22,58 GiB `MemAvailable` pred obnovo, vendar poročilo izrecno ne meri vršne porabe; iz kap ni mogoče sklepati o dejanski porabi.
 **Produkcija:** 0 sprememb, brez novega backup manifesta ali obnovitvene točke; predhodni delni backup ostaja nedotaknjen.
 **Naslednje:** dokazati varnost obstoječega restore pri trenutni kapaciteti, preden se spremeni samo numerični RAM guard ali začne nov zajem.
+
+**7. 11. 2026, 20:01–20:26 CET, F4:** usklajen zajem produkcijskega PG, Qdranta in 62-bajtnega checkpointa pod pravim app zaklepom PASS; `/var/lib/pisrs-backups/backup-20261107T190129Z`, SHA-256 `SHA256SUMS` `939c350d8f11fbc0b087043d3cfecef663a3de3b3563587f0d793f6fa30cde3f`; vsi člani in ponovljeni izvorni prstni odtisi so se ujemali.
+**Obnova:** izolirani PG se je začel, vendar ga je varovalo ustavilo ob `full PSI avg60=1,00 %`; PG rezultat FAIL/nedokazan, Qdrant NOT_RUN, checkpoint v zajemu PASS in izolirani odčitek NOT_RUN. Testni vsebnik je odstranjen; ponovitve ni bilo.
+**Viri/dokazi:** najmanjši vzorčeni `MemAvailable=10,04 GiB`, izolirani PG vzorčno 229–244 MiB (vrh UNKNOWN); `/home/rajko/.local/state/pisrs-f4-recovery-20261107T190113Z`, SHA-256 `ROOT_SHA256SUMS` `d88b45b6b5795bce36d81a7a1343ea53747e5a49208fa8393a914d1d637f30b0`.
+**Produkcija:** izvajalnik 0 zapisov v PG/Qdrant/checkpoint in 0 sprememb servisov; enoti pred/po bajtno enaki, servis inactive, timer active; končni polni izvorni fingerprint po prekinjeni obnovi NOT_RUN. Backup ohranjen, obnovljivost nove točke UNKNOWN, migracija HOLD.
+**Naslednje:** samo izolirana zaporedna obnova ob varnem pomnilniškem pritisku, brez novega zajema ali produkcijskih sprememb.
