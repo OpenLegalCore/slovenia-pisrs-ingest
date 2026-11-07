@@ -1,5 +1,7 @@
 # PISRS ingest — obvezna pravila izvajanja
 
+**LASTNIKOV STOP / RESET, 8. 11. 2026 — prednostna odločitev:** dosedanja razvojna pot je ustavljena. Dovoljeni so samo pregled obstoječih dokazov in konsolidacija projektne dokumentacije. Brez nadaljnjih Codex izvedbenih promptov, kodnih ali produkcijskih sprememb, API zajemov, backfilla, embeddingov oziroma izvedbe starih F0–F5/Linear nalog, dokler lastnik po preverbi osnov ne odobri novega obsega. Aktivne produkcije ne izključuj ali spreminjaj. Kanonična revizija je v [reset mandatu](docs/PISRS-FULL-API-EXECUTION.md); prejšnja navodila »opravi naslednji korak« so v času STOP podrejena temu ukazu.
+
 **Avtoriteta:** zadnja izrecna odločitev lastnika > ta AGENTS.md > [enotni izvedbeni mandat](docs/PISRS-FULL-API-EXECUTION.md). Drugi dokumenti so tehnične reference, NE dovoljenje za nov obseg. Ob vsakem novem obratu preberi **najprej AGENTS.md in kratki razdelek "Trenutno stanje" v mandatu**.
 
 ## Cilj in stroga meja
