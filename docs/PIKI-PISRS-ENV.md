@@ -2,7 +2,7 @@
 
 **G0 NOT ACCEPTED.** Independent, read-only PIKI observation at 08:12 CET on 2026-11-16, using host commands outside the restricted audit mount namespace. `hostname=piki`, Ubuntu 26.04.1 LTS, kernel `7.0.0-43-generic`, x86-64, 8 logical CPUs, NTP synchronized, Europe/Ljubljana. RAM 46 GiB with 38 GiB available, swap 31 GiB with zero used at that point. `/data` ext4 mounted read/write, 402 GiB free; root filesystem 85 GiB free. Python 3.14.4, Git 2.53.0, Docker 29.9.3. Docker and containerd systemd services active. No matching PISRS/PG/Qdrant unit files, no proposed or standard PG/Qdrant TCP listeners, no named candidate or conventional service users in the bounded query. This establishes observed inventory. Effective container, volume and port reservations still require operator review.
 
-Previous read-only configuration evidence lists Docker `data-root=/data/docker`, containerd root `/data/containerd`, Docker mount dependency on `/data`. Socket access remained unavailable to the audit account. The host operator must verify effective roots, storage-driver backend, relevant container/bind/volume inventory and port reservations. `/data` root was previously inspected as root-owned mode 0755. The project root is a proposed path. [Architecture and exact paths](PIKI-PISRS-ARCHITECTURE.md#network-and-files)
+**Historical initial inventory, superseded by subsequent authorized host readback:** the first restricted audit could inspect configuration only, not the effective container daemon. The owner subsequently proved Docker `data-root=/data/docker` with overlayfs, live containerd metadata under `/data/containerd` and `/data` ext4/rw; see the current verified section below. Project ACLs and future role isolation still require G3/G4 first-write tests. No need to repeat privileged diagnostics now. [Architecture and declared paths](PIKI-PISRS-ARCHITECTURE.md#network-and-files)
 
 ## Current verified environment and unresolved operational inputs
 
@@ -14,7 +14,7 @@ Previous read-only configuration evidence lists Docker `data-root=/data/docker`,
 
 ## Credential register
 
-Store only presence and proof metadata in Git/Linear. `NOT_VERIFIED` means service identity/presence or relevant entitlement has yet to be demonstrated. The PISRS 2024 token matched the Medo service token in the owner's protected comparison and a TLS-approved PIKI request succeeded in the previous cycle. The two owner-run bounded pilots completed 17 and 24 GETs. The subsequent audit shell had no available protected credential context for the remaining identity controls. Those results are recorded in [API](PIKI-PISRS-API.md) and [OLC-91](https://linear.app/openlegalcore/issue/OLC-91/pisrs-piki-g0-g2-credentials-uradni-openapi-in-ciljna-postgresql). The exact official numeric request limits remain undocumented; the protected service credential context is verified only when the future service is installed. This does not undo the owner's permission confirmation. No further 407 diagnostics are required for the observed working profile.
+Store only proof/status metadata (no credential, DSN or protected raw body) in Git/Linear. The owner confirmed the 2024 permit and successful PIKI authorized GETs. Initial local evidence records 17+24 GETs, three bounded local terminal probes and later completed G1 examples: ZDR-1 original SHA/content, a directional EU→RS association, and qualified `(128070,128088)` `Pravilnik` from the actual parent code-list. The protected original bodies are kept on PIKI, not here; see [API final positive evidence](PIKI-PISRS-API.md#confirmed-g1-positive-evidence-final-2026-11-16) and OLC-91. Numeric official request quotas remain undocumented and are handled by configurable conservative pacing and observed 429/Retry-After. The future application service's credentials/ACLs are not provisioned and will be verified in G3/G4. No new SVZ letter or HTTP-407-wide diagnostic campaign is required.
 
 | Credential or authorization | Owner and location | Evidence to record | Rotation and recovery |
 |---|---|---|---|
@@ -32,7 +32,7 @@ The pre-install G0 boundary is owner-confirmed existing PISRS permission, effect
 
 ## One operator evidence request
 
-Provide one timestamped, redacted evidence packet in OLC-91. Use the already authorized PIKI host, database and recovery operators. Record scope, responsible role, PASS/FAIL/NOT_VERIFIED/NOT_RUN and minimal proof for each line. Keep passwords, tokens, DSNs, private endpoints and protected outputs out of the packet. This is a read-only request.
+**Historical bounded operator evidence request (now completed for G0/G1):** the following checklist explains what was requested of the authorized PIKI operator in the earlier audit. Current Docker/containerd and G1 samples have since been read back and recorded. Do not rerun the completed old 17/24/1/5/1 GET programs; project roles that do not yet exist are instead tested during the approved G3/G4 provisioning. No credentials or protected original bodies should be posted to Linear.
 
 | Evidence | Operator action and return |
 |---|---|
@@ -74,7 +74,7 @@ The owner ran the narrow privileged verification on PIKI: `CONTAINERD_RUNTIME PA
 ## Targeted G0 closure, 2026-11-16 at 12:50 CET
 
 - **PASS for observable filesystem reservation.** `/data` is ext4/rw. The reserved `/data/pisrs-staging` tree and PG, Qdrant, backup and restore child paths were absent; no nested mount was observed on the reserved tree. This is a point-in-time host filesystem check. Recheck ownership, binds and conflicts immediately before approved provisioning. Prior Docker root, driver and empty container-list evidence remain on record.
-- **NOT_VERIFIED for effective containerd runtime root.** Active process PID 63983 had no `--root` override in its argument list; the readable configuration specified `/data/containerd` and that directory is root:root 0700. The guarded read of the live descriptor table required interactive authentication. The [single terminal handoff](PIKI-PISRS-API.md#remaining-source-identity-controls) checks the exact containerd metadata database path in the live process, with no configuration change.
+- **HISTORICAL NOT_VERIFIED, later superseded by owner PASS:** the 12:50 CET read lacked the privilege needed to inspect live containerd descriptors. The operator subsequently proved the running containerd metadata root at `/data/containerd` (`CONTAINERD_RUNTIME PASS`). This historical limitation does **not** remain an active G0 blocker. No repetition of the old terminal handoff is required.
 - **Owner deferral:** independent encrypted backup is [OLC-94](https://linear.app/openlegalcore/issue/OLC-94) Backlog after verified complete sync and separately approved Medo upgrade. No location chosen now. Local fenced capture and isolated restore remain required technical tests; G3/G4 role checks run at first installation.
 
 ## Source grant and use conditions
@@ -87,7 +87,7 @@ The [official Swagger](https://pisrs.si/swagger) and [developer guide](https://p
 
 ## Operator terminal handoff (historical)
 
-The block below records the original 17-GET execution. Use the [targeted controls](PIKI-PISRS-API.md#remaining-source-identity-controls) for the remaining work.
+**HISTORICAL, DO NOT RUN AGAIN:** this block records the already completed 17-GET operator evidence, not a current task. Final state/source identities are available in [G1 final evidence](PIKI-PISRS-API.md#confirmed-g1-positive-evidence-final-2026-11-16). The owner-confirmed 2024 permit and deferred OLC-94 backup decision supersede earlier pending issuer and off-host requests.
 
 <!-- OLC91-HANDOFF-BEGIN -->
 ```bash
