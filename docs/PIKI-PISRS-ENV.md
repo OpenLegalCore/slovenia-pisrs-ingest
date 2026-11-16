@@ -6,7 +6,7 @@ Previous read-only configuration evidence lists Docker `data-root=/data/docker`,
 
 ## Credential register
 
-Store only presence and proof metadata in Git/Linear. `NOT_VERIFIED` means service identity/presence or relevant entitlement has yet to be demonstrated. The PISRS 2024 token matched the Medo service token in the owner's protected comparison and a TLS-approved PIKI request succeeded in the previous cycle. The owner confirmed on 2026-11-16 that an authorized probe credential context is currently unavailable. The new G1 pilot is NOT_RUN. Those results are recorded in [API](PIKI-PISRS-API.md) and [OLC-91](https://linear.app/openlegalcore/issue/OLC-91/pisrs-piki-g0-g2-credentials-uradni-openapi-in-ciljna-postgresql). The issuer's permitted PIKI staging usage and sustained request policy and the staging service secret context remain **NOT_VERIFIED**. No further 407 diagnostics are required for the observed working profile.
+Store only presence and proof metadata in Git/Linear. `NOT_VERIFIED` means service identity/presence or relevant entitlement has yet to be demonstrated. The PISRS 2024 token matched the Medo service token in the owner's protected comparison and a TLS-approved PIKI request succeeded in the previous cycle. The two owner-run bounded pilots completed 17 and 24 GETs. The subsequent audit shell had no available protected credential context for the remaining identity controls. Those results are recorded in [API](PIKI-PISRS-API.md) and [OLC-91](https://linear.app/openlegalcore/issue/OLC-91/pisrs-piki-g0-g2-credentials-uradni-openapi-in-ciljna-postgresql). The issuer's permitted PIKI staging usage and sustained request policy and the staging service secret context remain **NOT_VERIFIED**. No further 407 diagnostics are required for the observed working profile.
 
 | Credential or authorization | Owner and location | Evidence to record | Rotation and recovery |
 |---|---|---|---|
@@ -59,9 +59,25 @@ The owner executed the existing handoff in a normal PIKI terminal with interacti
 
 The original operator script below has **already been executed once**. **Do not rerun it in full** just to correct the three optional user-input fields or find op-19/op-21 terminal pages. See [API evidence and specifically bounded continuation](PIKI-PISRS-API.md#bounded-g1-closure). Maintain the project-wide `/data` rule.
 
-## Operator terminal handoff
+## Targeted G0 closure, 2026-11-16 at 12:50 CET
 
-Run the Bash block below from a normal non-root PIKI terminal, or extract the marked block into Bash from this trusted worktree file. Only the Docker inventory commands ask for sudo. The API pilot runs as the unprivileged user, requires confirmation of the issuer's allowed reads, and reads the existing token via the terminal. Its output is limited to status, shape, counts and hashes. No auth value or payload is emitted. Return only sanitized results and the backup/source-grant evidence requested above.
+- **PASS for observable filesystem reservation.** `/data` is ext4/rw. The reserved `/data/pisrs-staging` tree and PG, Qdrant, backup and restore child paths were absent; no nested mount was observed on the reserved tree. This is a point-in-time host filesystem check. Recheck ownership, binds and conflicts immediately before approved provisioning. Prior Docker root, driver and empty container-list evidence remain on record.
+- **NOT_VERIFIED for effective containerd runtime root.** Active process PID 63983 had no `--root` override in its argument list; the readable configuration specified `/data/containerd` and that directory is root:root 0700. The guarded read of the live descriptor table required interactive authentication. The [single terminal handoff](PIKI-PISRS-API.md#remaining-source-identity-controls) checks the exact containerd metadata database path in the live process, with no configuration change.
+- **Recovery decision pending.** Approve an independent destination and recovery custodian, access policy and targets in [the recovery proposal](PIKI-PISRS-OPERATIONS.md#backup-and-restore). Base-role/grant checks for uninstalled targets are G3 (PostgreSQL) and G4 (Qdrant) stop checks before first writes. A full restore/rebuild is a G5 acceptance test.
+
+## Source grant and use conditions
+
+The sanitized approval evidence in [OLC-91](https://linear.app/openlegalcore/issue/OLC-91/pisrs-piki-g0-g2-credentials-uradni-openapi-in-ciljna-postgresql) records two SVZ messages dated 2024-12-13 approving/issuing the API access. The approval evidence reviewed there addresses token issuance. There is no recorded staging host clause, rate/quota or SLA. This review used that redacted evidence.
+
+[Swagger](https://pisrs.si/swagger) requires SVZ permission. The [official guide](https://pisrs.si/swagger/navodila) documents approved-token access, page display bounds and daily refresh, normally by 07:00. The page bound is a response/UI size, not a rate or nightly quota. The [SVZ launch notice](https://www.gov.si/novice/2024-03-27-zazivel-nov-pravno-informacijski-sistem-republike-slovenije-pisrs/) describes reuse of frequently accessed data and texts. The reviewed material does not specify permission for this staging host, request limits/concurrency, initial bulk plus ongoing sync, long-term storage of originals/historical data and recovery copies, or permitted downstream use for this grant. The public FAQ route returned a JavaScript shell in this read. Whole-corpus, archival and reuse entitlement therefore remain **NOT_VERIFIED**, even with successful bounded HTTP 200 receipts.
+
+**Draft for SVZ (unsent).**
+
+> Ali na podlagi obstoječe odobritve z dne 13. 12. 2024 dovoljujete uporabo PISRS API na internem stagingu PIKI za en začetni zajem dovoljenih katalogov, besedil in zgodovine ter dnevno sinhronizacijo? Prosimo za dovoljene omejitve zahtevkov (tempo, sočasnost, dnevna kvota in priporočeno okno) ter pogoje hrambe izvirnikov in zgodovine v PostgreSQL, šifriranih zunanjih varnostnih kopij in interne nadaljnje uporabe za iskanje. Ali za izpeljani indeks ali posredovanje besedila zunanjemu izvajalcu vektorizacije veljajo posebni pogoji?
+
+## Operator terminal handoff (historical)
+
+The block below records the original 17-GET execution. Use the [targeted controls](PIKI-PISRS-API.md#remaining-source-identity-controls) for the remaining work.
 
 <!-- OLC91-HANDOFF-BEGIN -->
 ```bash

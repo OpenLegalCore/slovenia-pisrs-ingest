@@ -164,8 +164,8 @@ Version ID, base act ID, document number, SOP and response hash all have distinc
 | Owner-run target | Observed PIKI response | Interpretation / outstanding |
 |---|---|---|
 | Local valid acts, op 17 | Page 1/2: 50/50 rows; page 1997: 19 rows; pages 1998/1999: empty, all HTTP 200. Page 1 and 2 total hint 99,819. Page-1997 SHA-256 `9dfe3419f63b7b205bddbca6cf6acd204a7bdaa763f8e77c3589e1430f4415bc`. | **PASS only for bounded terminal observation**, not full enumeration/set parity. |
-| Local acts in preparation, op 19 | Page 1/2: 50/50 rows; pages 1997/1998/1999: empty. All HTTP 200. First-page `totalCount=99819` is not an independently proven terminal bound. | **NOT_VERIFIED**: last nonempty page was not found. |
-| Local invalid acts, op 21 | Page 1/2: 50/50 rows; pages 1997/1998/1999: empty. All HTTP 200. The repeated 99,819 hint is not an accepted record-count assertion. | **NOT_VERIFIED**: last nonempty page was not found. |
+| Local acts in preparation, op 19 | Page 1/2: 50/50 rows; pages 1997/1998/1999: empty. All HTTP 200. First-page `totalCount=99819` is not an independently proven terminal bound. | Historical 17-GET bracket; the later bisection below supersedes it (PASS_BOUNDED). |
+| Local invalid acts, op 21 | Page 1/2: 50/50 rows; pages 1997/1998/1999: empty. All HTTP 200. The repeated 99,819 hint is not an accepted record-count assertion. | Historical 17-GET bracket; the later bisection below supersedes it (PASS_BOUNDED). |
 | State ZDR-1 `sop=2013-01-0784` | One state catalog response 200/JSON, 14,859 bytes, SHA-256 `7dfd6437cfcbccbfcd0145dde5bc7195bab72ff18d502bb0f2f82787f86e2711`. State base `/besedilo/{id}`: 200/`text/html`, 265,558 bytes, SHA-256 `d7a47fcafcf3faed5b185088751a7af76c76c95db8eaf0b02b6b4876da04d2b8`. | **PASS for retrieval/MIME/hash; content-to-base identity NOT_VERIFIED** because the entered comparison marker was not independently known. No evidence of wrong text. |
 | CELEX edge and dictionary lookup | The optional terminal prompts received prompt text instead of an independently verified marker/numeric dictionary pair; no qualifying downstream GET was sent. | **NOT_VERIFIED / NOT_RUN** for those optional proof checks; do not report negative link/dictionary findings. |
 
@@ -366,15 +366,198 @@ if __name__ == "__main__":
 ```
 <!-- OLC91-BISECTION-END -->
 
-### Other outstanding G1 evidence
+### Remaining source identity controls
 
-These controls are outside this 24-GET cycle.
+The three local terminal checks are **PASS_BOUNDED** as recorded above. That evidence and both owner-run pilots (17 + 24 GETs) are preserved. This cycle dispatched **0/3 new protected GETs** because the PIKI shell had no authorized credential context. References establish the expected identities independently of the protected responses.
 
-| Evidence needed | Smallest approved continuation | Pass condition and decision |
+| Control | Verified evidence | Remaining verification |
 |---|---|---|
-| State base text identity | Use one known state base catalogue ID whose act identity is independently confirmed and one issuer-sanctioned absence control only if necessary to classify non-availability. Reuse existing state NPB positive and historic body evidence. If a base ID is missing from the private evidence, allow one filtered state catalogue lookup. | Confirm correct scope, MIME and match to the intended act from the base response. Keep base and NPB locator classes separate. An unverifiable absence does not become a terminal unavailable disposition. |
-| Historical and relation links | Reuse recorded ZDR-1 and Ljubljana positive associations. Use at most two targeted filtered GETs for a known populated state/CELEX pair if a private evidence pair is unavailable. Confirm relevant code-list scope from fixture or issuer; at most one additional dictionary lookup on a known ID if required for a particular mapping. | Compare exact source references and scoped targets, record evidence for resolved paths and an explicit unresolved/ambiguous rule for everything else. One success establishes the rule for that fixture. Whole-corpus lineage and temporal coverage are G3 evidence. |
+| ZDR-1 base, SOP `2013-01-0784` | Archived HTTP 200/MIME/length/hash above. The [original Uradni list RS 21/2013, act 784, p. 2793](https://pisrs.si/api/uradni-list/objava/u2013021.pdf) shows the December endpoint in Art. 162(4). [ZDR-1D, Uradni list RS 114/2023](https://www.uradni-list.si/_pdf/2023/Ur/u2023114.pdf), Arts. 20 and 23, adds Art. 142.a and changes that deadline. The amendment also adds a reference to Directive 2019/1152 in Art. 1. These are content discriminators beyond title equality. | **NOT_VERIFIED** for the archived HTML itself. The prior operator probe processed its bytes in memory; no matching saved body was found in known audit paths. Compare only already acquired bytes with the exact archived size/hash, the original Art. 162(4) passage and absence of later/consolidation markers. If the operator cannot recover the original bytes, obtain a separate owner decision for an equivalent issuer proof or a one-off reread. This handoff does not refetch the base or its catalogue lookup. |
+| Known CELEX edge | **PASS_OFFICIAL** for ZVPot-1, SOP `2022-01-3083`, PISRS `ZAKO7054` → `32011L0083` (Directive 2011/83/EU). [Official national record, Art. 1](https://pisrs.si/Pis.web/pregledPredpisa?d-49685-p=1&d-49687-s=2&d-49688-o=2&d-49688-s=0&id=ZAKO7054) exposes the exact CELEX reference. [EUR-Lex](https://eur-lex.europa.eu/legal-content/sl/TXT/?uri=CELEX%3A32011L0083) identifies the target. | **NOT_RUN** for the integration API edge. A filtered state GET must return the exact SOP/MOPED ID and the CELEX inside `zveza[]`. Only then run a direct CELEX-target GET to establish the bounded link. No claim of reverse-edge or whole-corpus completeness. |
+| Known code-list member | **PASS_OFFICIAL** for `13022` (Pravilnik) in `Vrsta akta RS` per the [API Guide, §4.2](https://pisrs.si/swagger/navodila). The earlier run confirmed scoped dictionary lookup behavior. | **NOT_RUN** for this exact scoped API lookup. Use the independent list ID from the operator's previously authorized dictionary catalogue evidence or SVZ. The member ID 13022 is not the list ID. If the list identifier is unavailable, the handoff skips the request. |
 
-For any separately authorized follow-up on the controls above, reuse the earlier granted request profile, verified TLS, no redirects and bounded bytes/time. Stop authentication attempts at the first rejection. Retain only sanitized case identifiers, counts, classifications and allowed hashes in OLC-91. If an issuer statement supplies equivalent scope/terminal semantics, use it in place of redundant requests. Unknown optional qualifiers remain archived with explicit unresolved status. Missing required stop behavior or inability to identify a required text locator keeps G1 open.
+One operator run can verify the effective containerd root using a narrowly filtered live metadata DB descriptor, compare any retained ZDR-1 HTML offline, and execute at most **three new protected GETs** (two for the fixed CELEX pair and one scoped dictionary lookup). Confirm the allowed pilot scope and cadence first. The script uses the existing token via hidden terminal input, verified TLS, constrained targets, zero redirects, and no payload output. Paste only redacted status/count/size/hash lines into OLC-91. Full record-graph, versions and parity are G3 acceptance, independently of these three samples.
 
-**G1** accepts a bounded, reproducible enumeration method, identity rules and a documented source envelope. **G3** proves complete enumeration, catalogue/list set parity, retrieved original bytes and source-wide history against PostgreSQL. G1 does not require the full scan or ingest. [Acceptance](PIKI-PISRS-ACCEPTANCE.md)
+```bash
+python3 -c "$(awk '/^<!-- OLC91-IDENTITY-BEGIN -->$/{p=1;next} /^<!-- OLC91-IDENTITY-END -->$/{exit} p && !/^```/' /data/projects/pisrs-piki-staging-foundation/docs/PIKI-PISRS-API.md)"
+```
+
+<!-- OLC91-IDENTITY-BEGIN -->
+```python
+import getpass
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import time
+import unicodedata
+import warnings
+from html.parser import HTMLParser
+from pathlib import Path
+
+import requests
+
+BASE_SHA = "d7a47fcafcf3faed5b185088751a7af76c76c95db8eaf0b02b6b4876da04d2b8"
+CELEX = "32011L0083"
+SOP = "2022-01-3083"
+
+def normalize(text):
+    return " ".join(unicodedata.normalize("NFC", text).casefold().split())
+
+class Visible(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.hidden = 0
+        self.parts = []
+
+    def handle_starttag(self, tag, _attrs):
+        if tag in {"head", "script", "style"}:
+            self.hidden += 1
+
+    def handle_endtag(self, tag):
+        if tag in {"head", "script", "style"}:
+            self.hidden = max(0, self.hidden - 1)
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+
+def base_markers(body):
+    parser = Visible()
+    parser.feed(body.decode("utf-8-sig"))
+    text = normalize(" ".join(parser.parts))
+    article = re.search(
+        r"\b162\s*\.\s*člen\s*\(?izraba letnega dopusta\)?(.*?)\b163\s*\.\s*člen\b", text
+    )
+    return (
+        bool(article and re.search(r"\(4\).*31\s*\.\s*decembra naslednjega leta", article[1]))
+        and not re.search(r"\b142\s*\.\s*a\s*člen\b|pravica do odklopa|\b2019/1152\b", text)
+        and not re.search(r"neuradno prečiščeno besedilo\s+(predpisa|zakona)", text)
+    )
+
+def compare_saved(path):
+    if not path:
+        return "NOT_RUN", "saved-body-unavailable"
+    path = Path(path).expanduser()
+    try:
+        if not path.is_file():
+            return "NOT_VERIFIED", "regular-file-required"
+        with path.open("rb") as stream:
+            body = stream.read(265559)
+        if len(body) != 265558 or hashlib.sha256(body).hexdigest() != BASE_SHA:
+            return "NOT_VERIFIED", "different-body"
+        return ("PASS_BOUNDED", BASE_SHA) if base_markers(body) else ("NOT_VERIFIED", "source-markers")
+    except (OSError, ValueError):
+        return "NOT_VERIFIED", "cannot-read-or-decode"
+
+def containerd():
+    command = ["/usr/bin/systemctl", "show", "containerd.service", "-p", "MainPID", "--value"]
+    try:
+        pid = int(subprocess.check_output(command, text=True, stderr=subprocess.DEVNULL).strip())
+        if pid <= 0:
+            return False
+        result = subprocess.run([
+            "/usr/bin/sudo", "--", "/usr/bin/find", f"/proc/{pid}/fd", "-maxdepth", "1",
+            "-type", "l", "-lname", "/data/containerd/io.containerd.metadata.v1.bolt/meta.db",
+            "-printf", "x",
+        ], capture_output=True, check=False)
+        return (result.returncode == 0 and b"x" in result.stdout
+                and int(subprocess.check_output(command, text=True, stderr=subprocess.DEVNULL)) == pid)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
+class Stop(Exception):
+    pass
+
+def api_controls(token, delay, dictionary_id):
+    calls = 0
+    last_start = None
+    current = "CELEX_API"
+    with requests.Session() as session:
+        session.headers.update({
+            "Accept": "application/json, text/html",
+            "Accept-Encoding": "identity",
+            "User-Agent": "OpenLegalCore-pisrs-ingest/0.1.0",
+            "X-API-KEY": token,
+            "Authorization": f"Bearer {token}",
+        })
+
+        def read(label, path, params=None):
+            nonlocal calls, last_start
+            if calls >= 3:
+                raise Stop("request-budget")
+            if last_start is not None:
+                time.sleep(max(0, delay - (time.monotonic() - last_start)))
+            last_start = time.monotonic()
+            calls += 1
+            with session.get("https://pisrs.si/extapi" + path, params=params,
+                             verify=True, allow_redirects=False, stream=True, timeout=(8, 25)) as r:
+                print(label, "HTTP", r.status_code)
+                if r.status_code in {401,403,407,429,498} or 300 <= r.status_code < 400:
+                    raise Stop("auth-rate-or-redirect")
+                mime = r.headers.get("Content-Type", "").partition(";")[0].strip().lower()
+                if r.status_code != 200 or mime != "application/json" or r.headers.get("Content-Encoding","identity").lower() != "identity":
+                    return []
+                body = bytearray()
+                for chunk in r.iter_content(chunk_size=65536):
+                    body.extend(chunk)
+                    if len(body) > 4 * 1024 * 1024 or time.monotonic() - last_start > 45:
+                        raise Stop("body-bound")
+                print(label, "bytes", len(body), "sha256", hashlib.sha256(body).hexdigest())
+                value = json.loads(body)
+                if not isinstance(value,dict) or value.get("error"):
+                    return []
+                rows = value.get("data")
+                return rows if isinstance(rows,list) and all(isinstance(row,dict) for row in rows) else []
+
+        try:
+            state = read("STATE", "/predpis/register-predpisov", {"sop": SOP, "page":1, "pageSize":2})
+            source = [row for row in state if row.get("sop")==SOP and row.get("mopedId")=="ZAKO7054"]
+            refs = source[0].get("zveza") if len(state)==len(source)==1 else None
+            has_edge = isinstance(refs,list) and any(
+                isinstance(ref,dict) and ref.get("celex")==CELEX for ref in refs
+            )
+            target = read("EU", "/predpis-eu", {"celex":CELEX, "page":1, "pageSize":2}) if has_edge else []
+            matched = len(target)==1 and target[0].get("celex")==CELEX
+            print("CELEX_API", "PASS_BOUNDED" if matched else "NOT_VERIFIED")
+            current = "DICTIONARY_API"
+            if dictionary_id:
+                codes = read("DICTIONARY", "/sifranti/" + dictionary_id)
+                entry = [row for row in codes if type(row.get("id")) is int and row["id"] == 13022]
+                ok = len(entry)==1 and isinstance(entry[0].get("naziv"),str) and normalize(entry[0]["naziv"])=="pravilnik"
+                print("DICTIONARY_API", "PASS_BOUNDED" if ok else "NOT_VERIFIED")
+            else:
+                print("DICTIONARY_API NOT_RUN known-list-id-required")
+        except (requests.RequestException, Stop, ValueError, KeyboardInterrupt):
+            print(current, "NOT_VERIFIED stopped")
+        finally:
+            print(f"NEW_GET_REQUESTS {calls}/3")
+
+def main():
+    if Path("/proc/sys/kernel/hostname").read_text().strip().split(".")[0] != "piki" or not sys.stdin.isatty():
+        raise SystemExit("Use an ordinary PIKI terminal. NEW_GET_REQUESTS 0/3")
+    if input("Izvedem ozko bralno potrditev containerd s sudo [yes/skip]? ") == "yes":
+        print("CONTAINERD_RUNTIME", "PASS" if containerd() else "NOT_VERIFIED")
+    print("ZDR_BASE", *compare_saved(input("Pot do ohranjenega API HTML ZDR-1 [Enter=preskoči]: ").strip()))
+    if input("Dovoljen obseg in tempo za največ tri nove PIKI GET [yes/skip]? ") != "yes":
+        raise SystemExit("API NOT_RUN; NEW_GET_REQUESTS 0/3")
+    value = input("Najmanjši potrjeni razmik med zahtevki v sekundah [Enter=1, če dovoljeno]: ").strip() or "1"
+    if not re.fullmatch(r"[1-9][0-9]{0,3}",value):
+        raise SystemExit("API NOT_RUN; invalid cadence; NEW_GET_REQUESTS 0/3")
+    dictionary = input("Že dokazani ID šifranta Vrsta akta RS [Enter=preskoči]: ").strip()
+    if dictionary and not re.fullmatch(r"[0-9]{1,19}",dictionary):
+        raise SystemExit("API NOT_RUN; unknown dictionary ID; NEW_GET_REQUESTS 0/3")
+    warnings.simplefilter("error", getpass.GetPassWarning)
+    try:
+        token = getpass.getpass("Obstoječi PISRS žeton (skriti vnos): ")
+    except (EOFError, KeyboardInterrupt, getpass.GetPassWarning):
+        token = ""
+    if not token or any(c.isspace() for c in token):
+        raise SystemExit("API NOT_RUN; NEW_GET_REQUESTS 0/3")
+    api_controls(token, int(value), dictionary)
+
+if __name__ == "__main__":
+    main()
+```
+<!-- OLC91-IDENTITY-END -->
