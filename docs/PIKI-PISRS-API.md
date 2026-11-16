@@ -171,16 +171,25 @@ Version ID, base act ID, document number, SOP and response hash all have distinc
 
 ### Local terminal bisection for operations 19 and 21
 
-**New targeted run: NOT_RUN (0/24).** The PIKI audit shell had no available credential variables or visible source-service credential. Reuse the owner's HTTP 200 evidence above at `pageSize=50`.
+**Subsequent owner-run target completed — 2026-11-16 10:46:29 UTC:** **24/24 new bounded GETs, all HTTP 200**. The earlier Codex `NOT_RUN (0/24)` is superseded and retained only as historical provenance. Do **not** rerun this bisection. Each endpoint reached a sampled adjacent nonempty/empty pair with stable repeat of the last nonempty page. These observations prove bounded stop behavior for the two tested endpoints at `pageSize=50`, not a complete catalogue scan or longitudinal stability.
 
 | Operation | Established lower bound | Established upper bound | Terminal pair |
 |---|---:|---:|---|
-| 19 `/akt-ls/akti-v-pripravi` | 2 (50 rows) | 1997 (empty) | NOT_VERIFIED |
-| 21 `/akt-ls/neveljavni-akti` | 2 (50 rows) | 1997 (empty) | NOT_VERIFIED |
+| 19 `/akt-ls/akti-v-pripravi` | 2 (50 rows) | 1997 (empty) | **PASS_BOUNDED:** page 3 = 36 rows, page 4 = 0 rows; repeat page 3 stable |
+| 21 `/akt-ls/neveljavni-akti` | 2 (50 rows) | 1997 (empty) | **PASS_BOUNDED:** page 507 = 11 rows, page 508 = 0 rows; repeat page 507 stable |
+
+**Immutable evidence of owner-run bisection (not full enumeration):**
+
+| Operation | Last nonempty page | Successor empty page | Control readback |
+|---|---|---|---|
+| 19 `akti-v-pripravi` | 3, **36** rows, 47,623 bytes, SHA-256 `746c07e7d10abf616f4205db05ce0c8428c3644329313d9082c5c30d1912bc0a` | 4, **0** rows, SHA-256 `74f5bd62748ff68c3479f85c2d1785b70b509d6d04c9ff95304d868c91f89180` | Page 3 repeated, same ordered content and SHA; `CONTROL 19 ... records-stable body-stable` |
+| 21 `neveljavni-akti` | 507, **11** rows, 19,749 bytes, SHA-256 `92d7de284ea8eb05fd8364b160e080662f7763b2ca0098377fe0a16497e1c75d` | 508, **0** rows, SHA-256 `00b8d095437e7cc70ceb3086072c4ce982bb8572aaafe62744d8da19695231e4` | Page 507 repeated, same ordered content and SHA; `CONTROL 21 ... records-stable body-stable` |
+
+The earlier first-page `totalCount=99819` on operations 19 and 21 **did not represent the actual observed terminal position**. Under the unverified assumption that pages are contiguous and stable, this would suggest **136** and **25,311** rows respectively; these are **not certified totals**. Only a full G3 sweep plus independent source-to-PG manifest/parity can certify them. The previously observed op 17 terminal pair remains valid as bounded evidence. This new execution had **0 POST, 0 embeddings, 0 source/DB writes**. Owner did not provide a formal issuer rate/standing authorization document.
 
 Bisect the open interval at page size 50 until the bounds are adjacent. Use at most 11 search requests per endpoint and one fresh-page stability control per endpoint, with a combined ceiling of 24. Pages 1, 2 and 1997–1999 are excluded, including as controls. A control repeats a newly read boundary page, preferring the last nonempty page. Validate HTTP status, page echoes, envelope and row sizes, and int64 identities. Check uniqueness within a page and disjoint sampled identities across distinct pages of the same endpoint. Record SHA-256 of each received JSON body and compare ordered record content on the control, independently of diagnostic counter changes. Mark the affected operation NOT_VERIFIED on contradictory shape, overlap or changed records. Stop the pilot on auth, rate limit, redirect or TLS failure. A bounded pass records the sampled adjacent pair, subject to the archived bounds and stable sampled behavior. Full enumeration, source-to-PG parity and source-wide history remain G3 evidence.
 
-Run from a normal PIKI terminal after confirming permitted scope and cadence for this pilot. The command asks for the existing token with hidden input. Return only the sanitized UTC timestamp, HTTP/PAGE/BODY/CONTROL/RESULT or STOP lines and dispatch count to OLC-91.
+**HISTORICAL REPRODUCTION ONLY — DO NOT RE-RUN.** This operator command was executed on PIKI with concealed existing token after owner confirmation for these bounded reads. It is preserved as provenance; any subsequent investigation requires a separately defined reason, request budget and authorized source scope.
 
 ```bash
 python3 -c "$(awk '/^<!-- OLC91-BISECTION-BEGIN -->$/{p=1;next} /^<!-- OLC91-BISECTION-END -->$/{exit} p && !/^```/' /data/projects/pisrs-piki-staging-foundation/docs/PIKI-PISRS-API.md)"
