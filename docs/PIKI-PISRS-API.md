@@ -169,14 +169,203 @@ Version ID, base act ID, document number, SOP and response hash all have distinc
 | State ZDR-1 `sop=2013-01-0784` | One state catalog response 200/JSON, 14,859 bytes, SHA-256 `7dfd6437cfcbccbfcd0145dde5bc7195bab72ff18d502bb0f2f82787f86e2711`. State base `/besedilo/{id}`: 200/`text/html`, 265,558 bytes, SHA-256 `d7a47fcafcf3faed5b185088751a7af76c76c95db8eaf0b02b6b4876da04d2b8`. | **PASS for retrieval/MIME/hash; content-to-base identity NOT_VERIFIED** because the entered comparison marker was not independently known. No evidence of wrong text. |
 | CELEX edge and dictionary lookup | The optional terminal prompts received prompt text instead of an independently verified marker/numeric dictionary pair; no qualifying downstream GET was sent. | **NOT_VERIFIED / NOT_RUN** for those optional proof checks; do not report negative link/dictionary findings. |
 
-**Targeted continuation only (not yet run, subject to an explicit new bounded read budget):** For each of ops 19 and 21, keep page size 50 and reuse **page 2 nonempty** and **page 1997 empty** as known bounds. Locate an *adjacent* nonempty/empty page boundary by integer bisection; up to 11 new GETs per operation if the source remains stable and page behavior stays monotone. Optionally confirm the empty successor and cross-page IDs within a combined **maximum 24 GETs** for both endpoints. Log page, size, status and SHA-256 only; stop if the source changes, responses are inconsistent, or authorization fails. No re-GET of pages 1, 2, 1997–1999 unless justified by observed drift. This bounded boundary check does **not** establish full source-to-PG parity; that is G3. State base-text content marker must be verified against an independent authoritative reference (not an invented phrase), and optional CELEX/dictionary controls require independently known IDs. No full catalog scan, no POST or paid calls.
+### Local terminal bisection for operations 19 and 21
+
+**New targeted run: NOT_RUN (0/24).** The PIKI audit shell had no available credential variables or visible source-service credential. Reuse the owner's HTTP 200 evidence above at `pageSize=50`.
+
+| Operation | Established lower bound | Established upper bound | Terminal pair |
+|---|---:|---:|---|
+| 19 `/akt-ls/akti-v-pripravi` | 2 (50 rows) | 1997 (empty) | NOT_VERIFIED |
+| 21 `/akt-ls/neveljavni-akti` | 2 (50 rows) | 1997 (empty) | NOT_VERIFIED |
+
+Bisect the open interval at page size 50 until the bounds are adjacent. Use at most 11 search requests per endpoint and one fresh-page stability control per endpoint, with a combined ceiling of 24. Pages 1, 2 and 1997–1999 are excluded, including as controls. A control repeats a newly read boundary page, preferring the last nonempty page. Validate HTTP status, page echoes, envelope and row sizes, and int64 identities. Check uniqueness within a page and disjoint sampled identities across distinct pages of the same endpoint. Record SHA-256 of each received JSON body and compare ordered record content on the control, independently of diagnostic counter changes. Mark the affected operation NOT_VERIFIED on contradictory shape, overlap or changed records. Stop the pilot on auth, rate limit, redirect or TLS failure. A bounded pass records the sampled adjacent pair, subject to the archived bounds and stable sampled behavior. Full enumeration, source-to-PG parity and source-wide history remain G3 evidence.
+
+Run from a normal PIKI terminal after confirming permitted scope and cadence for this pilot. The command asks for the existing token with hidden input. Return only the sanitized UTC timestamp, HTTP/PAGE/BODY/CONTROL/RESULT or STOP lines and dispatch count to OLC-91.
+
+```bash
+python3 -c "$(awk '/^<!-- OLC91-BISECTION-BEGIN -->$/{p=1;next} /^<!-- OLC91-BISECTION-END -->$/{exit} p && !/^```/' /data/projects/pisrs-piki-staging-foundation/docs/PIKI-PISRS-API.md)"
+```
+
+<!-- OLC91-BISECTION-BEGIN -->
+```python
+import getpass
+import hashlib
+import json
+import sys
+import time
+import warnings
+from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
+
+ORIGIN = "https://pisrs.si/extapi"
+OPERATIONS = ((19, "/akt-ls/akti-v-pripravi"), (21, "/akt-ls/neveljavni-akti"))
+OLD_PAGES = {1, 2, 1997, 1998, 1999}
+PAGE_SIZE = 50
+
+class Unverified(Exception):
+    """A sampled source contract failed."""
+
+class Stop(Unverified):
+    """Stop the complete pilot after an access, rate, or budget failure."""
+
+def unique_keys(pairs):
+    values = dict(pairs)
+    if len(values) != len(pairs):
+        raise Unverified("duplicate-json-key")
+    return values
+
+def find_boundary(probe):
+    lo, hi = 2, 1997
+    for _ in range(11):
+        if hi == lo + 1:
+            break
+        mid = (lo + hi) // 2
+        if probe(mid):
+            lo = mid
+        else:
+            hi = mid
+    if hi != lo + 1:
+        raise Unverified("bounds-not-adjacent")
+    return lo, hi
+
+def run(token):
+    calls = 0
+    print("PIKI_UTC", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    with requests.Session() as session:
+        session.headers.update({
+            "Accept": "application/json, text/html",
+            "Accept-Encoding": "identity",
+            "User-Agent": "OpenLegalCore-pisrs-ingest/0.1.0",
+            "X-API-KEY": token,
+            "Authorization": f"Bearer {token}",
+        })
+        try:
+            for op, path in OPERATIONS:
+                samples = {}
+                seen = set()
+                op_calls = 0
+
+                def probe(page, control=False):
+                    nonlocal calls, op_calls
+                    if page in OLD_PAGES or not 2 < page < 1997:
+                        raise Stop("out-of-scope-page")
+                    if calls >= 24 or op_calls >= (12 if control else 11):
+                        raise Stop("request-budget")
+                    calls += 1
+                    op_calls += 1
+                    deadline = time.monotonic() + 45
+                    try:
+                        with session.get(
+                            ORIGIN + path, params={"page": page, "pageSize": PAGE_SIZE},
+                            verify=True, allow_redirects=False, stream=True, timeout=(8, 25),
+                        ) as response:
+                            status = response.status_code
+                            print("HTTP", op, page, status, "control" if control else "search")
+                            if status in {401, 403, 407, 429, 498} or 300 <= status < 400:
+                                raise Stop("auth-rate-or-redirect")
+                            if status != 200:
+                                raise Unverified("http-status")
+                            mime = response.headers.get("Content-Type", "").partition(";")[0].strip().lower()
+                            if mime != "application/json" or response.headers.get("Content-Encoding", "identity").lower() != "identity":
+                                raise Unverified("response-media-or-encoding")
+                            body = bytearray()
+                            for chunk in response.iter_content(chunk_size=65536):
+                                body.extend(chunk)
+                                if len(body) > 4 * 1024 * 1024 or time.monotonic() > deadline:
+                                    raise Unverified("body-bound")
+                    except requests.exceptions.SSLError:
+                        raise Stop("tls")
+                    except requests.RequestException:
+                        raise Unverified("transport") from None
+                    sha = hashlib.sha256(body).hexdigest()
+                    print("BODY", op, page, len(body), sha)
+                    try:
+                        payload = json.loads(body, object_pairs_hook=unique_keys)
+                        if not isinstance(payload, dict) or payload.get("error"):
+                            raise Unverified("wrapper")
+                        rows = payload.get("data")
+                        if not isinstance(rows, list) or not 0 <= len(rows) <= PAGE_SIZE:
+                            raise Unverified("data-size")
+                        if any(type(payload.get(k)) is not int or payload[k] != v for k, v in (
+                            ("page", page), ("requestedPageSize", PAGE_SIZE), ("realPageSize", len(rows))
+                        )):
+                            raise Unverified("page-echo-or-size")
+                        ids = [row.get("id") if isinstance(row, dict) else None for row in rows]
+                        if any(type(i) is not int or not -(2**63) <= i < 2**63 for i in ids) or len(set(ids)) != len(ids):
+                            raise Unverified("invalid-or-duplicate-id")
+                        records_sha = hashlib.sha256(json.dumps(
+                            rows, sort_keys=True, ensure_ascii=True, allow_nan=False,
+                            separators=(",", ":")
+                        ).encode()).hexdigest()
+                    except (ValueError, UnicodeError, RecursionError):
+                        raise Unverified("json-parse") from None
+                    print("PAGE", op, page, "rows", len(rows), "requested", PAGE_SIZE)
+                    if control:
+                        if samples[page][2] != records_sha:
+                            raise Unverified("control-records-changed")
+                        print("CONTROL", op, page, "records-stable",
+                              "body-stable" if samples[page][1] == sha else "wrapper-changed")
+                    else:
+                        if page in samples or seen.intersection(ids):
+                            raise Unverified("no-progress-or-cross-page-id-overlap")
+                        if any(
+                            (ids and other < page and count < PAGE_SIZE)
+                            or (len(ids) < PAGE_SIZE and other > page and count > 0)
+                            for other, (count, _, _) in samples.items()
+                        ):
+                            raise Unverified("inconsistent-page-order-or-size")
+                        seen.update(ids)
+                        samples[page] = len(rows), sha, records_sha
+                    return bool(rows)
+
+                try:
+                    last, successor = find_boundary(probe)
+                    probe(last if last in samples else successor, control=True)
+                    left = samples[last] if last in samples else (50, "PRIOR_17_GET", None)
+                    right = samples[successor] if successor in samples else (0, "PRIOR_17_GET", None)
+                    print("RESULT", op, "PASS_BOUNDED", last, left[0], left[1],
+                          successor, right[0], right[1])
+                except Stop:
+                    raise
+                except Unverified as err:
+                    print("RESULT", op, "NOT_VERIFIED", str(err))
+        except Stop as err:
+            print("STOP", op, "NOT_VERIFIED", str(err))
+        except KeyboardInterrupt:
+            print("STOP", op, "NOT_VERIFIED", "interrupted")
+        finally:
+            print(f"NEW_GET_REQUESTS {calls}/24")
+
+def main():
+    if Path("/proc/sys/kernel/hostname").read_text().strip().split(".")[0] != "piki" or not sys.stdin.isatty():
+        raise SystemExit("Run in a normal PIKI terminal. NEW_GET_REQUESTS 0/24")
+    if input("Potrjen obseg in tempo za teh največ 24 bralnih zahtev [yes/skip]? ") != "yes":
+        raise SystemExit("NOT_RUN; NEW_GET_REQUESTS 0/24")
+    warnings.simplefilter("error", getpass.GetPassWarning)
+    try:
+        token = getpass.getpass("Obstoječi PISRS žeton (skriti vnos): ")
+    except (EOFError, KeyboardInterrupt, getpass.GetPassWarning):
+        token = ""
+    if not token or any(c.isspace() for c in token):
+        raise SystemExit("NOT_RUN; NEW_GET_REQUESTS 0/24")
+    run(token)
+
+if __name__ == "__main__":
+    main()
+```
+<!-- OLC91-BISECTION-END -->
+
+### Other outstanding G1 evidence
+
+These controls are outside this 24-GET cycle.
 
 | Evidence needed | Smallest approved continuation | Pass condition and decision |
 |---|---|---|
-| Unfiltered local pagination | For operations 17, 19 and 21, choose one allowed fixed size (pilot 50 when permitted). Read page 1 and page 2, then use existing or current count evidence only to nominate a tail pair. Request the adjacent nonempty/empty pair when the nomination is usable and at most one adjacent control. Maximum five GETs per operation with no scan toward the end. If the nomination cannot bracket a terminal boundary, request an issuer-documented boundary or an authorized reference export, and keep this item open. | Prove forward progress and no overlap in the early pair, record response page echoes, requested and delivered sizes, then observe a nonempty page and its empty successor with corroboration that this signals termination. A short or empty page with contradictory shape or ordering leaves the profile unverified. The total may change. Record endpoint, request pages, signed or redacted digest, status and counts. No record-wide parity claim. |
 | State base text identity | Use one known state base catalogue ID whose act identity is independently confirmed and one issuer-sanctioned absence control only if necessary to classify non-availability. Reuse existing state NPB positive and historic body evidence. If a base ID is missing from the private evidence, allow one filtered state catalogue lookup. | Confirm correct scope, MIME and match to the intended act from the base response. Keep base and NPB locator classes separate. An unverifiable absence does not become a terminal unavailable disposition. |
 | Historical and relation links | Reuse recorded ZDR-1 and Ljubljana positive associations. Use at most two targeted filtered GETs for a known populated state/CELEX pair if a private evidence pair is unavailable. Confirm relevant code-list scope from fixture or issuer; at most one additional dictionary lookup on a known ID if required for a particular mapping. | Compare exact source references and scoped targets, record evidence for resolved paths and an explicit unresolved/ambiguous rule for everything else. One success establishes the rule for that fixture. Whole-corpus lineage and temporal coverage are G3 evidence. |
 
-Use the earlier granted request profile, verified TLS, no redirects and bounded bytes/time. Limit this continuation to 21 GETs total, and stop authentication attempts at the first rejection. Retain only sanitized case identifiers, counts, classifications and allowed hashes in OLC-91. If an issuer statement supplies equivalent scope/terminal semantics, use it in place of redundant requests. Unknown optional qualifiers remain archived with explicit unresolved status. Missing required stop behavior or inability to identify a required text locator keeps G1 open.
+For any separately authorized follow-up on the controls above, reuse the earlier granted request profile, verified TLS, no redirects and bounded bytes/time. Stop authentication attempts at the first rejection. Retain only sanitized case identifiers, counts, classifications and allowed hashes in OLC-91. If an issuer statement supplies equivalent scope/terminal semantics, use it in place of redundant requests. Unknown optional qualifiers remain archived with explicit unresolved status. Missing required stop behavior or inability to identify a required text locator keeps G1 open.
 
 **G1** accepts a bounded, reproducible enumeration method, identity rules and a documented source envelope. **G3** proves complete enumeration, catalogue/list set parity, retrieved original bytes and source-wide history against PostgreSQL. G1 does not require the full scan or ingest. [Acceptance](PIKI-PISRS-ACCEPTANCE.md)
