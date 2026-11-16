@@ -603,3 +603,17 @@ python3 /data/projects/pisrs-piki-staging-foundation/docs/PIKI-PISRS-G1-PROBE.py
 ```
 
 The [one-off evidence-only operator script](PIKI-PISRS-G1-PROBE.py) is **not ingest application development**. It requires interactive operator confirmation, concealed existing token, verified TLS with redirects disabled, one sequential request at a time, adjustable conservative pause and **at most six** GETs. Raw original response bytes are stored privately with `0700` directories and `0600` files at `/data/projects/.pisrs-g1-evidence/`, never printed or committed; only size/hash and PASS/NOT_VERIFIED are output. No database, docker/service, Medo, paid API, or production writes occur. Actual responses have **NOT** been executed in this documentation session; G1 remains open until their operator readback and interpretation. If a required locator/edge/list ID is absent, status remains NOT_VERIFIED rather than fabricated.
+
+### Confirmed G1 positive evidence — final 2026-11-16
+
+This section **supersedes the target-pending instructions above**; older scripted identity probes and their expectations are historical evidence and **MUST NOT be re-executed**. All new live source bodies remain in the protected PIKI-only local archive, not Git or Linear.
+
+| Class | Original live outcome | Status and boundary |
+|---|---|---|
+| ZDR-1 base, SOP `2013-01-0784` | Original HTML 265,558 bytes, SHA-256 `d7a47fcafcf3faed5b185088751a7af76c76c95db8eaf0b02b6b4876da04d2b8`; identical to earlier SHA, content discriminators verified | **PASS_BOUNDED** for observed base original, not proof for every source locator |
+| ZVPot-1 / CELEX | State record `mopedId=ZAKO7054`, SOP `2022-01-3083`, `zveza=[]`. Independent EU CELEX `32011L0083` record exists and has relation to `ZAKO7054` | **EU→RS PASS_BOUNDED; RS→EU EMPTY_OBSERVED**. Preserve directional evidence; do not fabricate reverse edge or conclude there is no EU relationship |
+| Dictionary catalogue | `/sifranti` contains parent `id=128070`, `naziv='Šifrant Vrsta akta RS'` | **PASS_BOUNDED** for parent ID, not a code value |
+| Dictionary detail | `/sifranti/128070` HTTP 200; 1,983 original bytes, SHA-256 `84d357ec1a69ea3c3f3955b1a7fc984ad8d1478c8691edfcb3d715f2942a351d`. 33 `data[]` entries; `id=128088`, `idNadrejeni=128070`, `naziv='Pravilnik'` | **PASS_BOUNDED** for qualified `(128070,128088)` code identity |
+| Previously expected `13022` | Not present among the 33 entries returned for parent `128070`. Older documentation attributed `13022` to `Pravilnik` from the guide | **DIFFERENT_NAMESPACE_OR_HISTORICAL_REFERENCE_NOT_RESOLVED**: do not use `13022` as the verified live `Pravilnik` source ID, but do not assert the guide is wrong or globally equate 13022 with 128088 |
+
+The protected initial probe made five HTTP-200 GET requests, followed by one successful GET for `/sifranti/128070` after one stopped HTTP-407 attempt; the 407 profile was not promoted and did not change stored source evidence. All required G1 positive **sample classes** have now been established to the stated bounded evidence scope. Source-wide PISRS→PostgreSQL and PostgreSQL→Qdrant completeness are **future independent runtime tests (G3/G4)**, not proven here. The formal G2 documentation acceptance remains an explicit separate owner decision.
