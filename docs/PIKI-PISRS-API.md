@@ -392,7 +392,7 @@ The owner subsequently executed the terminal handoff with concealed PISRS token 
 | Dictionary membership | `DICTIONARY_API NOT_RUN known-list-id-required` | Dictionary ID was not independently established; no lookup was dispatched. |
 | Request count | `NEW_GET_REQUESTS 1/3` | No POST, database write, paid embedding or repeated 41-GET local pagination scans. |
 
-**Continuation:** do not rerun the generic handoff. First reconcile the existing sanitized state response/field mapping and the official API shape using the already known target; obtain a proven dictionary ID. If another protected request is truly necessary, define one small, separately authorized targeted GET budget. The missing retained base HTML is not proof of source unavailability. Issuer PIKI long-running usage and off-host recovery approval are still open.
+**Continuation:** do not rerun the generic handoff. The source grant issued in December 2024 is confirmed by the owner; numeric throughput limits remain undocumented and must be conservatively configured. First reconcile the existing sanitized state response/field mapping and the official API shape using the already known target; obtain a proven dictionary ID. If another protected request is truly necessary, define one small, separately authorized targeted GET budget. The missing retained base HTML is not proof of source unavailability. Issuer PIKI long-running usage and off-host recovery approval are still open.
 
 ### Remaining source identity controls
 
@@ -404,7 +404,7 @@ The three local terminal checks are **PASS_BOUNDED** as recorded above. That evi
 | Known CELEX edge | **PASS_OFFICIAL** for ZVPot-1, SOP `2022-01-3083`, PISRS `ZAKO7054` → `32011L0083` (Directive 2011/83/EU). [Official national record, Art. 1](https://pisrs.si/Pis.web/pregledPredpisa?d-49685-p=1&d-49687-s=2&d-49688-o=2&d-49688-s=0&id=ZAKO7054) exposes the exact CELEX reference. [EUR-Lex](https://eur-lex.europa.eu/legal-content/sl/TXT/?uri=CELEX%3A32011L0083) identifies the target. | **NOT_RUN** for the integration API edge. A filtered state GET must return the exact SOP/MOPED ID and the CELEX inside `zveza[]`. Only then run a direct CELEX-target GET to establish the bounded link. No claim of reverse-edge or whole-corpus completeness. |
 | Known code-list member | **PASS_OFFICIAL** for `13022` (Pravilnik) in `Vrsta akta RS` per the [API Guide, §4.2](https://pisrs.si/swagger/navodila). The earlier run confirmed scoped dictionary lookup behavior. | **NOT_RUN** for this exact scoped API lookup. Use the independent list ID from the operator's previously authorized dictionary catalogue evidence or SVZ. The member ID 13022 is not the list ID. If the list identifier is unavailable, the handoff skips the request. |
 
-One operator run can verify the effective containerd root using a narrowly filtered live metadata DB descriptor, compare any retained ZDR-1 HTML offline, and execute at most **three new protected GETs** (two for the fixed CELEX pair and one scoped dictionary lookup). Confirm the allowed pilot scope and cadence first. The script uses the existing token via hidden terminal input, verified TLS, constrained targets, zero redirects, and no payload output. Paste only redacted status/count/size/hash lines into OLC-91. Full record-graph, versions and parity are G3 acceptance, independently of these three samples.
+**Historical operator script below: DO NOT RERUN.** It already executed 1/3 GET and verified containerd. Its CELEX EU GET was conditionally skipped when the RS response mapping did not establish the edge, and it lacked the dictionary parent ID. Use instead the narrowly bounded [positive G1 probe](#targeted-g1-positive-evidence-after-owner-handoff), which checks both relation directions and derives the exact dictionary parent ID. Full-corpus parity is G3.
 
 ```bash
 python3 -c "$(awk '/^<!-- OLC91-IDENTITY-BEGIN -->$/{p=1;next} /^<!-- OLC91-IDENTITY-END -->$/{exit} p && !/^```/' /data/projects/pisrs-piki-staging-foundation/docs/PIKI-PISRS-API.md)"
@@ -589,3 +589,17 @@ if __name__ == "__main__":
     main()
 ```
 <!-- OLC91-IDENTITY-END -->
+
+### Targeted G1 positive evidence after owner handoff
+
+Owner option **A** requires three positive, source-backed examples: original ZDR-1 base HTML (SOP `2013-01-0784`) with original bytes/SHA and independent Art. 162(4) content markers; a real API CELEX association between ZVPot-1 `2022-01-3083` / `ZAKO7054` and `32011L0083` with **direction verified**, not inferred; and `13022` = `Pravilnik` in the **correct parent dictionary** `Vrsta akta RS`. Option **B** stays a required `UNRESOLVED`/`AMBIGUOUS` program behavior if any association remains unprovable; B never substitutes for A's evidence.
+
+The prior ZDR-1 HTML and ZVPot-1 state response did not survive as independently readable raw bytes. The smallest self-contained protected follow-up needs at most **six** GETs: ZDR qualified state catalogue→base text; ZVPot qualified state catalogue→EU CELEX detail; `/sifranti`→`/sifranti/{verified-parent-id}`. Both the RS→EU `zveza[].celex` and EU→RS `zveza[].mopedID` directions are evaluated independently. `EU_TARGET PASS` without a real association **is not** `CELEX_EDGE PASS`; a new ZDR HTML hash differing from the earlier 265,558-byte digest cannot retroactively prove the lost original. All bodies remain private, off Git, with redacted hashes/status sent to OLC-91. Never repeat the 17+24 pilot or earlier one-GET handoff.
+
+**Single operator command on PIKI, after updating the existing review checkout:**
+
+```bash
+python3 /data/projects/pisrs-piki-staging-foundation/docs/PIKI-PISRS-G1-PROBE.py
+```
+
+The [one-off evidence-only operator script](PIKI-PISRS-G1-PROBE.py) is **not ingest application development**. It requires interactive operator confirmation, concealed existing token, verified TLS with redirects disabled, one sequential request at a time, adjustable conservative pause and **at most six** GETs. Raw original response bytes are stored privately with `0700` directories and `0600` files at `/data/projects/.pisrs-g1-evidence/`, never printed or committed; only size/hash and PASS/NOT_VERIFIED are output. No database, docker/service, Medo, paid API, or production writes occur. Actual responses have **NOT** been executed in this documentation session; G1 remains open until their operator readback and interpretation. If a required locator/edge/list ID is absent, status remains NOT_VERIFIED rather than fabricated.
