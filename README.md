@@ -1,5 +1,7 @@
 # OpenLegalCore Slovenian Legislation Ingest (PISRS)
 
+> **PIKI staging rebuild (design only, 2026-11-16):** The [canonical PIKI project contract](docs/PIKI-PISRS-MASTER.md), [official API inventory](docs/PIKI-PISRS-API.md), [staging/credentials preflight](docs/PIKI-PISRS-ENV.md) and [proposed data model](docs/PIKI-PISRS-DATA.md) are a reviewed **documentation baseline, not an accepted implementation or proof of full coverage**. Actual OpenAPI schemas, PIKI credentials and target database mapping must pass G0–G2 before staging implementation. This historical README describes the original component, not the new PIKI deployment.
+
 `pisrs-ingest` is the Slovenian legislation-ingest component of
 [OpenLegalCore](https://github.com/OpenLegalCore). It discovers legislation metadata and
 consolidated-text versions from PISRS, stores authoritative structured state in PostgreSQL,
