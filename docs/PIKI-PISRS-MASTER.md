@@ -66,6 +66,29 @@ Use distinct denominator and verification time for each catalogue, source text, 
 | During G4 preflight before Qdrant writes | Prove Qdrant service roles, scoped collection, QA fence and recovery from verified PG vectors. Any paid embeddings need separately approved measured token costs. |
 | Acceptance with running staging | G3 tests full source enumeration, raw/history and source-to-PG parity, resume and isolation. G4 tests exact index parity. G5 tests real nightly, read-only access and timed independent recovery. |
 
+## Consolidated documentation review — 2026-11-16
+
+The canonical candidate was reconciled end to end **without changing architecture or starting code**. The source inventory is defined in API, typed persistence and identity rules in DATA, exact staging topology in ARCHITECTURE, operational transactions and recovery in SYNC/OPERATIONS, and the 18 tests in ACCEPTANCE. AGENTS and README point to this master. AUDIT remains immutable dated evidence, not a current approval certificate.
+
+| Required specification area | Canonical binding source | Documentation check |
+|---|---|---|
+| All authorized PISRS operation classes and explicit exclusions | API operations and implementation envelope | 27 documented operations = 26 ingest GET + one out-of-scope credential-request POST; 13 paged + ten unpaged + state text + two code operations |
+| Parameters, DTOs, identity keys and nullable source behavior | API parameter groups + DATA field matrix and identity contract | 15 schemas and 125 field rows; numeric/SOP/CELEX/dictionary namespaces distinct |
+| PostgreSQL raw-byte history and consistency | DATA 20-table inventory and migration rules | 15 G3 archive/source + five G4 index/paid tables, migrations and audit constraints defined |
+| First full sweep, independent source-to-PG parity | SYNC deterministic contract + ACCEPTANCE A01–A11 | stop conditions, two-manifest comparison and honest NOT_VERIFIED boundary described |
+| Daily renewal, pause/resume, failures and checkpoint | SYNC + OPERATIONS daily chain + ACCEPTANCE A10–A15 | no silent advancement on cap/partial source; one scheduled pipeline |
+| State legal versions and dated search | DATA legal eligibility + API source identity + ACCEPTANCE A06/A18 | no invented legality/retroactivity, no unsupported local/EU full-text claims |
+| Qdrant vector cache, paid cost and source/index separation | DATA Qdrant contract + SYNC G4 + ACCEPTANCE A12/A13 | exact cached-vector/point parity, guarded in-place one-collection update |
+| PIKI paths, process identities and privilege gates | ENV + ARCHITECTURE + OPERATIONS | /data, existing Docker/containerd proven; not-yet-created roles are G3/G4 tests |
+| Confidentiality, backup, restoration and continuity | ENV credential register + OPERATIONS recovery + ACCEPTANCE A16/A17 | off-host destination and custodian **unapproved external input**; actual RPO/RTO measured in G5 |
+| Final release/read-only test-user acceptance | OPERATIONS + ACCEPTANCE A14–A18 | true timer run, negative access, backup restore and dated legal QA required in G5 |
+
+**Static candidate checks:** 11 existing project documents traversed; 73 internal relative links and anchors resolvable; 20 declared tables; 15 DTO/125 mapped fields; 27 official operations (26 GET, one POST); A01–A18 all present; no obvious long API-token patterns in inspected document contents. These checks validate internal consistency of the **documentation**, not actual PostgreSQL migrations, source completeness, Qdrant vector correctness, real nightly performance or legal/source entitlement.
+
+**Remaining material external/owner inputs** (do not hide behind a green documentation check): (1) confirm with issuer whether current credential/grant permits a scheduled PIKI bulk initial/daily run, rate, retention/reuse; (2) name/approve real independent off-host backup/recovery destination and custodian, retention and RPO <=24h / proposed RTO <=8h; (3) decide whether residual G1 proof gaps (base ZDR-1 HTML attribution, selected CELEX/code-list edges) may be explicit archived exceptions or require additional verified positive fixtures before G3. In either case, a required unknown locator cannot be silently treated as available. These are approval/empirical evidence dependencies, **not permissions to redesign the application**.
+
+**Status: CONSOLIDATED_SPECIFICATION_CANDIDATE, NOT OWNER ACCEPTED.** No implementation code or runnable SQL migration exists on this review branch. Static consistency is not runtime verification; final owner acceptance on the exact reviewed commit and a separate G3 authorization are required before installation or bulk ingestion. Record these decisions in the existing OLC-91 without creating new projects.
+
 ## Next action
 
 **Do not rerun the completed 17+24 GET pilots or the latest generic 1-GET identity handoff.** Preserve the [owner terminal identity results](PIKI-PISRS-API.md#owner-run-final-identity-handoff-2026-11-16) and use only the necessary targeted source-shape/reference analysis before further API reads. Obtain the [issuer scope](PIKI-PISRS-ENV.md#source-grant-and-use-conditions) and choose the independent recovery destination/custodian and RPO/RTO, then record one G0–G2 owner signoff. G3 requires explicit separate authorization; full enumeration/parity are its tests.
