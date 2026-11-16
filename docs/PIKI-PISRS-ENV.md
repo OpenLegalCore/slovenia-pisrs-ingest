@@ -59,6 +59,10 @@ The owner executed the existing handoff in a normal PIKI terminal with interacti
 
 The original operator script below has **already been executed once**. **Do not rerun it in full** just to correct the three optional user-input fields or find op-19/op-21 terminal pages. See [API evidence and specifically bounded continuation](PIKI-PISRS-API.md#bounded-g1-closure). Maintain the project-wide `/data` rule.
 
+## Owner terminal follow-up — containerd effective root PASS
+
+The owner ran the narrow privileged verification from the existing identity handoff on PIKI. Output: **`CONTAINERD_RUNTIME PASS`**, corroborating the running containerd process's open metadata DB descriptor under `/data/containerd`. This supersedes the earlier `NOT_VERIFIED` label for the effective process root. Docker's effective `/data/docker` with overlayfs and `/data` free capacity were already confirmed. **G0 is still not fully accepted** because PISRS issuer-approved staging/nightly scope and rate, an off-host independently recoverable backup destination/custodian and owner-approved recovery objectives remain open. Missing not-yet-created PG/Qdrant roles and paths are G3/G4 provisioning preflights rather than failures in the current host.
+
 ## Targeted G0 closure, 2026-11-16 at 12:50 CET
 
 - **PASS for observable filesystem reservation.** `/data` is ext4/rw. The reserved `/data/pisrs-staging` tree and PG, Qdrant, backup and restore child paths were absent; no nested mount was observed on the reserved tree. This is a point-in-time host filesystem check. Recheck ownership, binds and conflicts immediately before approved provisioning. Prior Docker root, driver and empty container-list evidence remain on record.
