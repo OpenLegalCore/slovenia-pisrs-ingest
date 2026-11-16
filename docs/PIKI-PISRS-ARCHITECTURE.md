@@ -1,6 +1,8 @@
 # PIKI staging architecture
 
-**Proposed G2 target.** Run two permanent database containers on the existing PIKI Docker Engine and run one pinned Python release with three unprivileged one-shot jobs and one timer. This uses the existing container lifecycle and storage without moving shared Docker state. It keeps application credentials, scheduling and backup control in systemd and avoids an application container, scheduler service, message broker, web application, and reverse proxy. Switch this decision only if effective Docker storage or port isolation fails the G0 review. Host baseline and unresolved readiness are in [ENV](PIKI-PISRS-ENV.md).
+**Minimal topology approved by the owner, 2026-11-16 (OLC-91).** The approval covers 20 PostgreSQL tables (15 source/archive, five for indexing), PostgreSQL in G3 and Qdrant in G4, two data containers, three host service accounts, one timer, a single physical collection, controlled index downtime during publication, recovery from verified PostgreSQL vectors, and all project storage under `/data`. Final gate and implementation authorization remain open. [Master](PIKI-PISRS-MASTER.md#scope-and-gates)
+
+Run two permanent database containers on the existing PIKI Docker Engine and run one pinned Python release with three unprivileged one-shot jobs and one timer. This uses the existing container lifecycle and storage without moving shared Docker state. It keeps application credentials, scheduling and backup control in systemd and avoids an application container, scheduler service, message broker, web application, and reverse proxy. Switch this decision only if effective Docker storage or port isolation fails the G0 review. Host baseline and unresolved readiness are in [ENV](PIKI-PISRS-ENV.md).
 
 ```mermaid
 flowchart LR

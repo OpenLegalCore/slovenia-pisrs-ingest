@@ -159,7 +159,7 @@ Version ID, base act ID, document number, SOP and response hash all have distinc
 
 ## Bounded G1 closure
 
-**NOT_RUN, 2026-11-16.** The owner confirmed that a safe authorized PIKI credential context is currently unavailable. Previously verified OpenAPI and 26 GET results remain on record. No new protected requests were dispatched.
+**NOT_RUN, 2026-11-16 at 10:08 CET, 0/21 GET.** The authorized PIKI shell had no available credential variables or visible source-service runtime credential. The known working December 2024 token remains the operator's input. The new controls were not dispatched. Prior OpenAPI, 26 GET results and the ZDR-1/Ljubljana evidence above remain on record. The [terminal handoff](PIKI-PISRS-ENV.md#operator-terminal-handoff) uses hidden input after operator confirmation of issuer scope.
 
 | Evidence needed | Smallest approved continuation | Pass condition and decision |
 |---|---|---|

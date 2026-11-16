@@ -188,7 +188,7 @@ One physical collection `pisrs_piki_staging`, with `text-embedding-3-large`, 3,0
 | Current-only | Serves current text. Historical lexical/structured reads from PostgreSQL can still work. Historical semantic recall stays outside this index. | Fewer embedded inputs and points. Rollover may discard vectors for previously served versions unless cached in PG. |
 | Current and qualified historical versions | Semantic retrieval across supported dates. Current search uses today's legal date with the same temporal filter. | More unique chunks, points and storage. Exact text reuse deduplicates embedding costs across versions, with a separate point for each legal context. One collection, one publication pipeline. |
 
-**Recommendation for owner approval** is the historical option with proven temporal applicability. PostgreSQL keeps all retrievable history under either option. Architecture approval covers scope and date semantics; G4 paid approval remains separate and binds measured unique missing input tokens, a current tariff, transfer scope and cap.
+**Owner-approved index policy (2026-11-16, OLC-91).** Index current and historically qualified state versions whose legal applicability for the selected date is evidenced. Preserve all retrievable history in PostgreSQL. Retain unsupported or unresolved windows as explicit gaps and exclude them from dated search. This is the G2 architecture decision. G4 paid approval remains separate and binds measured unique missing input tokens, a current tariff, transfer scope and cap.
 
 ### Legal date eligibility
 
