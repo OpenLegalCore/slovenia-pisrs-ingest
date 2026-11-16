@@ -1,0 +1,16 @@
+# Generated files and protected local credentials are never source artifacts.
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+wheelhouse/
+*.whl
+*.pgpass
+*.pem
+*.key
+.env
+.env.*
+secrets/
