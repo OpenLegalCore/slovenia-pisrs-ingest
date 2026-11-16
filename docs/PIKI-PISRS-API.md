@@ -366,6 +366,20 @@ if __name__ == "__main__":
 ```
 <!-- OLC91-BISECTION-END -->
 
+### Owner-run final identity handoff — 2026-11-16
+
+The owner subsequently executed the terminal handoff with concealed PISRS token after confirming the bounded request scope. **One of three possible protected GETs was dispatched, returning HTTP 200**. This supersedes only the earlier `NOT_RUN 0/3` state of this handoff; do not repeat the original operation as if it had never run.
+
+| Control | Actual result | Interpretation |
+|---|---|---|
+| Effective containerd metadata root | `CONTAINERD_RUNTIME PASS` using narrow sudo-backed read of live process descriptor | **G0 storage process-root proof PASS** in the current observation; earlier configuration evidence remains on record. |
+| Saved ZDR-1 base HTML | `ZDR_BASE NOT_RUN saved-body-unavailable` | The previously fetched 265,558-byte HTML, SHA-256 `d7a47fcafcf3faed5b185088751a7af76c76c95db8eaf0b02b6b4876da04d2b8`, was not available locally for independent content comparison. Do not claim verification of the body by title alone. |
+| ZVPot-1 source identifier and CELEX edge | State `/predpis/register-predpisov` for `sop=2022-01-3083`: `HTTP 200`, 6,558 bytes, SHA-256 `a78292417fb3746a6e33358d6575cccd0b2d98c689e98b7521895ab6da1433e1`; `CELEX_API NOT_VERIFIED` | **GET succeeded; matching edge not proven**. The conditional `/predpis-eu` GET was **not dispatched**. This may reflect shape/identity/field mismatch or absent association in that one source response; no cause is established by the redacted output. Do not infer source error or lack of EU relationship. |
+| Dictionary membership | `DICTIONARY_API NOT_RUN known-list-id-required` | Dictionary ID was not independently established; no lookup was dispatched. |
+| Request count | `NEW_GET_REQUESTS 1/3` | No POST, database write, paid embedding or repeated 41-GET local pagination scans. |
+
+**Continuation:** do not rerun the generic handoff. First reconcile the existing sanitized state response/field mapping and the official API shape using the already known target; obtain a proven dictionary ID. If another protected request is truly necessary, define one small, separately authorized targeted GET budget. The missing retained base HTML is not proof of source unavailability. Issuer PIKI long-running usage and off-host recovery approval are still open.
+
 ### Remaining source identity controls
 
 The three local terminal checks are **PASS_BOUNDED** as recorded above. That evidence and both owner-run pilots (17 + 24 GETs) are preserved. This cycle dispatched **0/3 new protected GETs** because the PIKI shell had no authorized credential context. References establish the expected identities independently of the protected responses.
