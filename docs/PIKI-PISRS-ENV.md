@@ -44,6 +44,21 @@ The operator runs privileged reads with existing authorization; Docker group mem
 | Backup and restore | NOT_VERIFIED | Proposed backup, work and restore paths were not visible. No independently verified recovery destination, custodian access or agreed RPO/RTO in available records. Owner/operator decision remains open. |
 | PISRS grant and context | NOT_VERIFIED | Earlier successful TLS PIKI GET and existing December 2024 credential are on record. Shell variables were UNSET and no source runtime credential path was visible. The issuer's permitted PIKI scope, cadence and restrictions remain undocumented in the available evidence. |
 
+## Owner-run operator readback, 2026-11-16 (supersedes earlier noninteractive blocker)
+
+The owner executed the existing handoff in a normal PIKI terminal with interactive `sudo` and a concealed existing PISRS credential. **This was a read-only inventory and 17-GET pilot, not an installation.**
+
+| Check | State | Observed evidence / remaining action |
+|---|---|---|
+| Effective Docker data root | **PASS** | `DOCKER_RUNTIME /data/docker overlayfs`; `sudo docker ps -aq` returned `NO_DOCKER_CONTAINERS` at the readback time. No project's container conflict was observed. Do not assume the empty daemon state remains permanent. |
+| `/data` mounted | **PASS** | `/data ext4 rw,relatime`; 402 GiB free of 458 GiB, approximately 8% used. Project backup/restore paths are not yet provisioned as expected before G3. |
+| containerd root | **PARTIAL / NOT_VERIFIED** | `CONTAINERD_CONFIG_ROOT /data/containerd` confirmed, but `CONTAINERD_RUNTIME_ROOT` not independently corroborated against the running process. |
+| Staging isolation and permissions | **NOT_VERIFIED / NOT_RUN where unprovisioned** | No PISRS staging users/containers/data directories yet; complete effective ACL and role-negative tests when provisioning is explicitly approved. Do not create them in G0. |
+| Source reachability | **PASS for bounded operator-run API access** | All 17 GET requests returned 200 using the existing December 2024 PISRS token. Formal issuer authorization for long-running PIKI staging scope, quota and cadence remains **NOT_VERIFIED**. |
+| Independent backup/recovery | **NOT_VERIFIED** | Independent encrypted failure domain, recovery custodian and approved RPO/RTO still await concrete owner/operator decision; merely creating a backup directory on `/data` is not independent recovery. |
+
+The original operator script below has **already been executed once**. **Do not rerun it in full** just to correct the three optional user-input fields or find op-19/op-21 terminal pages. See [API evidence and specifically bounded continuation](PIKI-PISRS-API.md#bounded-g1-closure). Maintain the project-wide `/data` rule.
+
 ## Operator terminal handoff
 
 Run the Bash block below from a normal non-root PIKI terminal, or extract the marked block into Bash from this trusted worktree file. Only the Docker inventory commands ask for sudo. The API pilot runs as the unprivileged user, requires confirmation of the issuer's allowed reads, and reads the existing token via the terminal. Its output is limited to status, shape, counts and hashes. No auth value or payload is emitted. Return only sanitized results and the backup/source-grant evidence requested above.
