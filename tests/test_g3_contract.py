@@ -45,7 +45,7 @@ class ContractTests(unittest.TestCase):
             strict_json(b'{"data":[{"id":1,"id":2}]}')
 
     def test_numeric_and_raw_canonical(self):
-        value=strict_json(b'{"a": 12.250,"b":[3, null],"c":"č"}')
+        value=strict_json('{"a": 12.250,"b":[3, null],"c":"č"}'.encode("utf-8"))
         self.assertEqual(value["a"],Decimal("12.250"))
         self.assertEqual(canonical(value),'{"a":12.250,"b":[3,null],"c":"č"}')
         self.assertEqual(payload_hash(value),hashlib.sha256(canonical(value).encode()).digest())
