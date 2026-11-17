@@ -132,11 +132,21 @@ case "$command" in
                     case "$*" in
                         *'.HostConfig.NetworkMode'*) echo "/pisrs-piki-pg $IMAGE_ID exited no $NETWORK $RUN" ;;
                         *'.Mounts'*)
-                            if [[ $SCENARIO == resume_wrong_mount ]]; then
-                                echo 'bind /other-data /var/lib/postgresql true'
-                            else
-                                printf 'bind %s/pisrs-staging/pg/data /var/lib/postgresql true\nbind %s/pisrs-staging/pg/conf /run/pisrs-pg false\n' "$DATA" "$DATA"
-                            fi ;;
+                            [[ $SCENARIO != resume_mount_inspect_failed ]] || exit 4
+                            data_source=$DATA/pisrs-staging/pg/data
+                            config_rw=false
+                            case "$SCENARIO" in
+                                resume_wrong_mount) data_source=/other-data ;;
+                                resume_config_writable) config_rw=true ;;
+                            esac
+                            printf '"bind" "%s" "/var/lib/postgresql" true\n' "$data_source"
+                            printf '"bind" "%s/pisrs-staging/pg/conf" "/run/pisrs-pg" %s\n' "$DATA" "$config_rw"
+                            if [[ $SCENARIO == resume_extra_mount ]]; then
+                                printf '"bind" "/other-data" "/unexpected" false\n'
+                            fi
+                            # Docker inspect appends one newline after the rendered template.
+                            printf '\n'
+                            ;;
                         *'.HostConfig.PortBindings'*) echo '5432/tcp 127.0.0.1 15432' ;;
                         *) echo "$RUN true" ;;
                     esac
@@ -394,8 +404,19 @@ class BootstrapTests(unittest.TestCase):
     def test_resume_rejects_mount_drift_without_touching_container(self):
         self.set_up_failed_acceptance()
         state = self.state.read_text()
-        result = self.run_script("resume_wrong_mount", "--resume-acceptance")
+        for scenario in ("resume_wrong_mount", "resume_config_writable", "resume_extra_mount"):
+            with self.subTest(scenario=scenario):
+                result = self.run_script(scenario, "--resume-acceptance")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("resume_mounts_unverified", result.stderr)
+                self.assert_no_provisioning()
+                self.assertEqual(self.state.read_text(), state)
+
+    def test_resume_distinguishes_failed_mount_inspection_from_mount_drift(self):
+        self.set_up_failed_acceptance()
+        state = self.state.read_text()
+        result = self.run_script("resume_mount_inspect_failed", "--resume-acceptance")
         self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("resume_mounts_unverified", result.stderr)
+        self.assertIn("resume_mounts_inspect_failed", result.stderr)
         self.assert_no_provisioning()
         self.assertEqual(self.state.read_text(), state)

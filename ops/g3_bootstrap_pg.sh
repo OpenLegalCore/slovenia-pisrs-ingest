@@ -180,9 +180,12 @@ resume_acceptance() {
     identity=$("${docker_cli[@]}" inspect --type container --format \
         "{{.Name}} {{.Image}} {{.State.Status}} {{.HostConfig.RestartPolicy.Name}} {{.HostConfig.NetworkMode}} {{index .Config.Labels \"$label\"}}" "$container_id") || stop resume_container_unverified
     [[ $identity == "/$container $image_id exited no $network_id $run_id" ]] || stop resume_container_unverified
+    # Capture before comparing so Docker's extra trailing newline is stripped.
     mounts=$("${docker_cli[@]}" inspect --type container --format \
-        '{{range .Mounts}}{{println .Type .Source .Destination .RW}}{{end}}' "$container_id" | sort) || stop resume_mounts_unverified
-    [[ $mounts == "bind $root/pg/conf /run/pisrs-pg false"$'\n'"bind $root/pg/data /var/lib/postgresql true" ]] || stop resume_mounts_unverified
+        '{{range .Mounts}}{{printf "%q %q %q %t\n" .Type .Source .Destination .RW}}{{end}}' "$container_id") || stop resume_mounts_inspect_failed
+    local config_mount="\"bind\" \"$root/pg/conf\" \"/run/pisrs-pg\" false"
+    local data_mount="\"bind\" \"$root/pg/data\" \"/var/lib/postgresql\" true"
+    [[ $mounts == "$config_mount"$'\n'"$data_mount" || $mounts == "$data_mount"$'\n'"$config_mount" ]] || stop resume_mounts_unverified
     ports=$("${docker_cli[@]}" inspect --type container --format \
         '{{range $port,$bindings := .HostConfig.PortBindings}}{{range $bindings}}{{println $port .HostIp .HostPort}}{{end}}{{end}}' "$container_id") || stop resume_port_unverified
     [[ $ports == '5432/tcp 127.0.0.1 15432' ]] || stop resume_port_unverified
