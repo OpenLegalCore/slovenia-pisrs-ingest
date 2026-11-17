@@ -3,9 +3,63 @@
 set -euo pipefail
 umask 077
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-stop() { printf 'OLC97 FAIL %s\n' "$1" >&2; exit 2; }
 stage=preflight
-trap 'printf "OLC97 FAIL stage=%s line=%d\n" "$stage" "$LINENO" >&2' ERR
+exit_reason=command_failed
+state_file=
+network_id=
+container_id=
+temporary_originals=()
+label=org.openlegalcore.pisrs.bootstrap
+stop() { exit_reason=$1; exit 2; }
+
+record_state() {
+    printf 'status=%s stage=%s commit=%s run=%s network=%s container=%s reason=%s container_action=%s\n' \
+        "$1" "$stage" "$commit" "$run_id" "${network_id:-none}" "${container_id:-none}" \
+        "${2:-none}" "${3:-none}" >> "$state_file"
+}
+
+begin_stage() { stage=$1; record_state IN_PROGRESS; }
+
+remove_temporary_originals() {
+    if (( ${#temporary_originals[@]} > 0 )); then
+        rm -f -- "${temporary_originals[@]}" || return 1
+        temporary_originals=()
+    fi
+}
+
+finish() {
+    local rc=$1 status=FAILED container_action=not_created running
+    (( rc != 0 )) || return 0
+    trap '' HUP INT TERM
+    case "$exit_reason" in SIGHUP|SIGINT|SIGTERM) status=INTERRUPTED ;; esac
+    if [[ -n $container_id ]]; then
+        if ! running=$(timeout -k 3s 20s "${docker_cli[@]}" inspect --type container \
+            --format "{{index .Config.Labels \"$label\"}} {{.State.Running}}" "$container_id"); then
+            container_action=inspect_failed
+        elif [[ $running == "$run_id false" ]]; then
+            container_action=already_stopped
+        elif [[ $running != "$run_id true" ]]; then
+            container_action=ownership_not_verified
+        elif timeout -k 3s 20s "${docker_cli[@]}" stop --timeout 10 "$container_id" >/dev/null; then
+            container_action=stopped
+        else
+            container_action=stop_failed
+        fi
+    fi
+    if ! remove_temporary_originals; then
+        printf 'OLC97 protected_copy_cleanup_failed stage=%s\n' "$stage" >&2
+    fi
+    if [[ -n $state_file ]] && ! record_state "$status" "$exit_reason" "$container_action"; then
+        printf 'OLC97 state_write_failed path=%s\n' "$state_file" >&2
+    fi
+    printf 'OLC97 FAIL status=%s stage=%s reason=%s exit=%s state=%s container_action=%s\n' \
+        "$status" "$stage" "$exit_reason" "$rc" "${state_file:-none}" "$container_action" >&2
+}
+
+trap 'finish "$?"' EXIT
+trap 'exit_reason=SIGHUP; exit 129' HUP
+trap 'exit_reason=SIGINT; exit 130' INT
+trap 'exit_reason=SIGTERM; exit 143' TERM
 
 [[ $(hostname -s) == piki && $(uname -m) == x86_64 && $EUID == 0 ]] || stop requires_piki_operator
 operator=${SUDO_USER:-}
@@ -19,25 +73,37 @@ bridge=pisrs-piki-staging
 docker_cli=(/usr/bin/docker --host unix:///var/run/docker.sock)
 operator_git() { /usr/sbin/runuser -u "$operator" -- /usr/bin/git -C "$repo" "$@"; }
 
-[[ $# == 0 ]] || stop unexpected_arguments
+check_only=no
+if [[ $# == 1 && $1 == --check ]]; then
+    check_only=yes
+elif (( $# != 0 )); then
+    stop unexpected_arguments
+fi
 [[ $(operator_git branch --show-current) == piki/staging-foundation ]] || stop wrong_branch
-[[ -z $(operator_git status --porcelain=v1) ]] || stop dirty_checkout
-commit=$(operator_git rev-parse HEAD)
-operator_git merge-base --is-ancestor 62410ea890f82ae25aa9ddbfa19cca6c7a319a6f "$commit"
-/bin/bash "$repo/ops/g3_check_piki.sh"
-for principal in pisrs-source pisrs-backup; do
-    if getent passwd "$principal" >/dev/null || getent group "$principal" >/dev/null; then
-        stop existing_project_service_identity
-    fi
-done
+checkout_status=$(operator_git status --porcelain=v1) || stop checkout_status_unverified
+[[ -z $checkout_status ]] || stop dirty_checkout
+commit=$(operator_git rev-parse HEAD) || stop checkout_commit_unverified
+operator_git merge-base --is-ancestor 62410ea890f82ae25aa9ddbfa19cca6c7a319a6f "$commit" || stop wrong_candidate
+# Keep the check and reservation exclusive without creating a lock file.
+exec {lock_fd}</data
+flock --exclusive --nonblock "$lock_fd" || stop bootstrap_lock_unavailable
+/bin/bash "$repo/ops/g3_check_piki.sh" || stop preflight_rejected
 mapfile -t captures < <(find /data/projects/.pisrs-g1-evidence -maxdepth 2 -type f -name sifranti-index.body)
 [[ ${#captures[@]} == 1 ]] || stop original_evidence_missing_or_ambiguous
 [[ $(stat -c '%a' "${captures[0]}") == 600 ]] || stop original_evidence_permissions
 [[ $(sha256sum < "${captures[0]}") == "$archive_hash  -" ]] || stop original_evidence_digest
+if [[ $check_only == yes ]]; then
+    printf 'OLC97 CHECK PASS commit=%s\n' "$commit"
+    exit 0
+fi
 
-stage=release
+stage=reserve_project_path
+run_id=$(openssl rand -hex 16)
+mkdir -m 0755 -- "$root" || stop project_path_reservation_failed
+state_file=$root/bootstrap.state
+begin_stage release
 umask 022
-install -d -m 0755 "$root" "$root/releases" "$root/runtime" "$root/work" "$root/pg"
+install -d -m 0755 "$root/releases" "$root/runtime" "$root/work" "$root/pg"
 install -d -m 0711 "$root/secrets"
 release=$root/releases/$commit
 install -d -m 0755 "$release" "$release/src"
@@ -62,14 +128,16 @@ wheel=("$release"/openlegalcore_pisrs_g3-*.whl)
 printf 'RELEASE PASS %s %s\n' "$commit" "$(sha256sum < "${wheel[0]}" | cut -d' ' -f1)"
 umask 077
 
-stage=postgresql
+begin_stage pull_postgresql_image
 "${docker_cli[@]}" pull --quiet --platform linux/amd64 "$image"
 for principal in pisrs-source pisrs-backup; do
+    begin_stage "create_host_account_$principal"
     useradd --system --user-group --no-create-home --home-dir /nonexistent \
         --shell /usr/sbin/nologin "$principal"
-    install -d -m 0700 -o "$principal" "$root/secrets/$principal" "$root/work/$principal"
+    install -d -m 0750 -g "$principal" "$root/secrets/$principal" "$root/work/$principal"
 done
-install -d -m 0700 -o "$operator" "$root/secrets/operator"
+begin_stage configure_postgresql
+install -d -m 0750 -g "$(id -gn "$operator")" "$root/secrets/operator"
 install -d -m 0700 -o 70 -g 70 "$root/pg/data"
 install -d -m 0750 -g 70 "$root/pg/conf"
 openssl req -quiet -x509 -newkey rsa:3072 -nodes -days 730 \
@@ -86,8 +154,12 @@ chown 70:70 "$root/pg/conf/"{server.key,server.crt,bootstrap.password}
 chmod 0400 "$root/pg/conf/"{server.key,bootstrap.password}
 chmod 0444 "$root/pg/conf/"{server.crt,ca.crt}
 
-"${docker_cli[@]}" network create --driver bridge "$bridge" >/dev/null
-gateway=$("${docker_cli[@]}" network inspect --format '{{(index .IPAM.Config 0).Gateway}}' "$bridge")
+begin_stage create_docker_network
+new_network=$("${docker_cli[@]}" network create --driver bridge --label "$label=$run_id" "$bridge")
+[[ $new_network =~ ^[0-9a-f]{64}$ ]] || stop unexpected_network_id
+network_id=$new_network
+begin_stage configure_network_access
+gateway=$("${docker_cli[@]}" network inspect --format '{{(index .IPAM.Config 0).Gateway}}' "$network_id")
 [[ $gateway =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop unexpected_docker_gateway
 cat > "$root/pg/conf/pg_hba.conf" <<HBA
 local all postgres peer
@@ -99,28 +171,35 @@ host all all ::/0 reject
 HBA
 chmod 0640 "$root/pg/conf/pg_hba.conf"
 chgrp 70 "$root/pg/conf/pg_hba.conf"
-"${docker_cli[@]}" run --detach --name "$container" --platform linux/amd64 --user 70:70 \
-    --network "$bridge" --publish 127.0.0.1:15432:5432 --restart unless-stopped \
+begin_stage create_postgresql_container
+new_container=$("${docker_cli[@]}" create --name "$container" --platform linux/amd64 --user 70:70 \
+    --network "$network_id" --publish 127.0.0.1:15432:5432 --restart no --label "$label=$run_id" \
     --memory 8g --cpus 3 --log-driver json-file --log-opt max-size=20m --log-opt max-file=3 \
     --mount "type=bind,src=$root/pg/data,dst=/var/lib/postgresql" \
     --mount "type=bind,src=$root/pg/conf,dst=/run/pisrs-pg,readonly" \
     --env PGDATA=/var/lib/postgresql/cluster --env POSTGRES_PASSWORD_FILE=/run/pisrs-pg/bootstrap.password \
     "$image" postgres -c hba_file=/run/pisrs-pg/pg_hba.conf \
-    -c ssl=on -c ssl_cert_file=/run/pisrs-pg/server.crt -c ssl_key_file=/run/pisrs-pg/server.key >/dev/null
+    -c ssl=on -c ssl_cert_file=/run/pisrs-pg/server.crt -c ssl_key_file=/run/pisrs-pg/server.key)
+[[ $new_container =~ ^[0-9a-f]{64}$ ]] || stop unexpected_container_id
+container_id=$new_container
+begin_stage start_postgresql_container
+"${docker_cli[@]}" start "$container_id" >/dev/null
 ready=0
 for ((attempt=0; attempt<60; attempt++)); do
-    if "${docker_cli[@]}" exec --user 70:70 "$container" pg_isready -q -h 127.0.0.1; then
+    if "${docker_cli[@]}" exec --user 70:70 "$container_id" pg_isready -q -h 127.0.0.1; then
         ready=1
         break
     fi
     sleep 1
 done
 (( ready == 1 )) || stop postgresql_not_ready
-[[ $("${docker_cli[@]}" port "$container" 5432/tcp) == 127.0.0.1:15432 ]] || stop unexpected_pg_publish
+[[ $("${docker_cli[@]}" port "$container_id" 5432/tcp) == 127.0.0.1:15432 ]] || stop unexpected_pg_publish
 psql() {
-    "${docker_cli[@]}" exec --user 70:70 -i "$container" psql -X -v ON_ERROR_STOP=1 \
+    "${docker_cli[@]}" exec --user 70:70 -i "$container_id" psql -X -v ON_ERROR_STOP=1 \
         -h /var/run/postgresql -U postgres -d postgres "$@"
 }
+begin_stage create_postgresql_roles
+[[ $(psql -Atqc 'SHOW server_version_num') == 180007 ]] || stop unexpected_pg_version
 psql -q <<'SQL'
 CREATE ROLE pisrs_migrator LOGIN;
 CREATE ROLE pisrs_source LOGIN;
@@ -129,7 +208,7 @@ CREATE DATABASE pisrs_staging OWNER pisrs_migrator;
 REVOKE ALL ON DATABASE pisrs_staging FROM PUBLIC;
 GRANT CONNECT ON DATABASE pisrs_staging TO pisrs_source, pisrs_backup;
 SQL
-[[ $(psql -Atqc 'SHOW server_version_num') == 180007 ]] || stop unexpected_pg_version
+begin_stage configure_postgresql_credentials
 for role in pisrs_migrator pisrs_source pisrs_backup; do
     case "$role" in
         pisrs_migrator) account=$operator; dest=$root/secrets/operator ;;
@@ -148,18 +227,18 @@ for role in pisrs_migrator pisrs_source pisrs_backup; do
 done
 printf 'POSTGRESQL PASS version=18.7 port=127.0.0.1:15432 image=%s\n' "$image"
 
-stage=migration
+begin_stage migration
 cd "$release"
 /usr/sbin/runuser -u "$operator" -- "$python" -IB -m pisrs_g3 migrate \
     --pg-conn-file "$root/secrets/operator/conninfo"
-stage=acceptance
+begin_stage acceptance
 source_conn=$root/secrets/pisrs-source/conninfo
 reader_conn=$root/secrets/pisrs-backup/conninfo
 source_original=$root/work/pisrs-source/sifranti-index.body
 reader_original=$root/work/pisrs-backup/sifranti-index.body
+temporary_originals=("$source_original" "$reader_original")
 install -m 0600 -o pisrs-source "${captures[0]}" "$source_original"
 install -m 0600 -o pisrs-backup "${captures[0]}" "$reader_original"
-trap 'rm -f -- "$source_original" "$reader_original"' EXIT
 cd "$release/src/tests"
 /usr/sbin/runuser -u pisrs-source -- env "PISRS_G3_TEST_SOURCE=$source_conn" \
     "$python" -B -m unittest test_g3_postgres.ArchiveAcceptanceTests.test_transport_failure_leaves_no_success_checkpoint
@@ -177,4 +256,9 @@ printf '%s\n' "$second"
 printf '%s' "$second" | "$python" -IB -c 'import json,sys; r=json.load(sys.stdin); assert r["canary"]=="ALREADY_ARCHIVED" and r["attempt_id"]==int(sys.argv[1]) and r["get_requests"]==0' "$attempt_id"
 /usr/sbin/runuser -u pisrs-backup -- env "PISRS_G3_TEST_READER=$reader_conn" \
     "$python" -B -m unittest test_g3_postgres.ArchiveAcceptanceTests.test_initial_archive_counts_and_role_boundaries
+remove_temporary_originals || stop protected_copy_cleanup_failed
+begin_stage enable_restart_policy
+"${docker_cli[@]}" update --restart unless-stopped "$container_id" >/dev/null
+stage=finished
+record_state COMPLETE
 printf 'OLC97 PASS protected_capture_attempt=%s live_gets=0\n' "$attempt_id"
