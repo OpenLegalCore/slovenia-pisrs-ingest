@@ -1,20 +1,19 @@
-# OpenLegalCore PISRS — agent execution contract (PIKI)
+# PISRS ingest — binding agent guard (owner audit 2026-11-17)
 
-**Before anything else read:**
-1. [docs/PIKI-PISRS-MASTER.md](docs/PIKI-PISRS-MASTER.md) — sole project plan, gate states, scope and acceptance.
-2. [docs/PIKI-PISRS-API.md](docs/PIKI-PISRS-API.md) — official API operation inventory and exact unverified contracts.
-3. [docs/PIKI-PISRS-ENV.md](docs/PIKI-PISRS-ENV.md) — PIKI resources and credential readiness.
-4. [docs/PIKI-PISRS-DATA.md](docs/PIKI-PISRS-DATA.md) — proposed PostgreSQL/Qdrant model, **not accepted DDL**.
-5. Current [Linear PISRS project](https://linear.app/openlegalcore/project/pisrs-complete-source-to-index-synchronization-b47e7deb7c78) and [OLC-91](https://linear.app/openlegalcore/issue/OLC-91/pisrs-piki-g0-g2-credentials-uradni-openapi-in-ciljna-postgresql).
+**FIRST READ THE CURRENT [LINEAR PISRS PROJECT DESCRIPTION](https://linear.app/openlegalcore/project/pisrs-complete-source-to-index-synchronization-b47e7deb7c78).** It is the **sole active owner-decision register** for scope, HOLD/GO, approvals and accepted deliverables. If it cannot be read or conflicts with a proposed action, **STOP**. Historical Git/Linear comments, handoffs and G0–G5 documents are evidence, never an independent GO.
 
-**Owner decision 2026-11-16:** PIKI is a **new permanent staging deployment**; Medo is separate legacy production. Do not fix or modify Medo, Engine or case-law systems under this work.
+**As of 2026-11-17: OWNER HOLD — DEVELOPMENT_HOLD=YES; NEW CODEX TASKS=FORBIDDEN; NEW PISRS GET/POST, DB/Qdrant writes, deployments, service actions, Medo/PIKI changes and paid AI calls=FORBIDDEN.** The owner has accepted an independent audit and authorized **only governance controls P1–P5**, not ingestion development. A later owner GO must be recorded explicitly in the Linear project; do not infer it from a past G2 signoff, closed task or old instruction.
 
-**Current gates G0, G1, G2 are NOT accepted.** Until verified source contracts, PIKI host/credentials and owner-accepted target mapping exist, only authorized bounded read-only inventory, source research, docs and design are allowed. No schema creation, container provisioning, service/start/stop, ingestion, paid OpenAI API calls, secret copying, deployment or unrequested Git/Linear scaffolding.
+## Five mandatory controls
 
-**API rule:** official Swagger `https://pisrs.si/swagger` and its government instructions are authoritative, but Swagger UI and legacy Medo reports are NOT proof of exact OpenAPI schema or live PIKI responses. Never invent an API field/path, equate catalogue ID with text/file ID, or claim 100% by catalogue counts. Name `NOT_VERIFIED` explicitly.
+1. **P1 | One decision source.** Read current Linear project before any task. The signed G2 documentation commit `2083017e5ccaf578a1226a24b4de064338c5653d` remains unchanged as historical evidence, **not** the current executable architecture mandate. Do not silently rewrite it.
+2. **P2 | One end-to-end mandate.** Any future work requires a distinct owner-approved business result, permitted scope/actions, exact reviewed Git SHA(s), evidence-based acceptance, budget and STOP conditions. Do not create microtasks, alternative plans, branches or additional approval cycles independently. Within-mandate technical corrections do not require a new project; an actual scope/cost/risk change requires owner decision.
+3. **P3 | Reuse and cost first.** Before replacing existing code/schema, compare it against the Medo deployed source and saved data. Before any embeddings, verify exact UTF-8 model input hash, model, dimensions, eligibility and available paid vectors; quantify missing inputs and obtain separate measured owner cost approval. The 20-point inconclusive sample does not justify discarding 281,338 existing vectors. Never auto-repeat uncertain paid POST requests.
+4. **P4 | Exact implementation identity.** Distinguish local checkout HEAD, GitHub HEAD, reviewed diff, and actual deployed SHA. Any material mismatch blocks privileged/data-affecting operations. Protect and review integration/main branch changes; do not merge or promote without independently verified branch protection/required checks. No assumed Docker/socket privilege or bypass. GitHub branch-protection settings are **NOT_VERIFIED** by the connector as of this audit.
+5. **P5 | Outcome proof and real enforcement.** Report source scope, cutoff, independently verified complete qualified identity/content manifests, history and exceptions for PISRS→PG, and frozen eligible point/payload/actual-vector parity for PG→Qdrant. Count commits, docs and canaries only as component evidence, never as end-to-end PASS. Before any future GO, verify effective Git/DB/Qdrant/provider permissions; if enforcement cannot be tested, record `ENFORCEMENT_NOT_VERIFIED`, never PASS.
 
-**Credentials:** never print/store tokens, DSNs, root passwords or protected payloads in Git, Linear, agent logs or chat. Record only SET/UNSET/NOT_VERIFIED, service-owner role, secure source, minimal proof timestamp and redacted hashes. Do not assume Medo credentials exist on PIKI. Use non-interactive no-pager commands; never bypass privilege guards.
+## Preservation
 
-**Preservation:** PostgreSQL is the proposed durable source archive; Qdrant is derived. No paid embeddings before PG texts, local tokenizer cost calculation and explicit owner approval. No ad hoc Docker volumes, test databases, branches or parallel master plans. No destructive cleanups outside specifically inspected PIKI-owned paths.
+Keep Medo and PIKI data, services and secrets untouched while HOLD. PostgreSQL is the durable source archive; Qdrant is derived. The existing 2024 PISRS permission is owner-confirmed; do **not** reopen SVZ authorization or invent rate quotas. Independent off-host backup is deferred in [OLC-94](https://linear.app/openlegalcore/issue/OLC-94); two future local copies are not off-host backup. Never disclose tokens, DSNs, raw protected data or private logs. No email without express owner approval.
 
-**Reporting:** distinguish `PASS`, `FAIL`, `NOT_VERIFIED`, `NOT_RUN`. Record verified evidence and exact blocker, not generic progress. One next action, no unnecessary new scope. Owner approval is required before G3 or paid G4.
+**Until the owner explicitly lifts HOLD after separate acceptance of enforced P1–P5: audit/governance readback only; NO automatic development resumption.**
