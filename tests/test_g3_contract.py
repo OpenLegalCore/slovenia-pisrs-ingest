@@ -4,14 +4,19 @@ import json
 from pathlib import Path
 import unittest
 from decimal import Decimal
+from unittest.mock import MagicMock
 
 from pisrs_g3.contract import (
     OPS, BY_KEY, PAGED_KEYS, ARRAY_KEYS, OPENAPI_SHA256,
     ContractError, canonical, strict_json, qualified_identity,
     parse_response, request_path, safe_work_key, payload_hash,
 )
-from pisrs_g3.storage import _link_rows
+from pisrs_g3.http import Reply
+from pisrs_g3.storage import _link_rows, _store_record, requeue_quarantined_sifranti, verify_archive
 from pisrs_g3.cli import check_contract
+
+
+RUN_ID = "00000000-0000-0000-0000-000000000001"
 
 
 class ContractTests(unittest.TestCase):
@@ -68,6 +73,59 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len(refs),1)
         self.assertEqual(refs[0][3],"MOPED")
         self.assertEqual(refs[0][4],"ZAKO7054")
+
+    def test_signed_parent_metadata_is_preserved_in_record_revision(self):
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = (1,)
+        row = {"id": 123, "idNadrejeni": -7, "naziv": "Example"}
+        _store_record(conn, RUN_ID, BY_KEY[25], row)
+        sql, parameters = conn.execute.call_args.args
+        self.assertIn("parent_code_id", sql)
+        self.assertEqual(len(parameters), sql.count("%s"))
+        self.assertEqual(parameters[-1], "-7")
+        self.assertEqual(json.loads(parameters[3]), row)
+        with self.assertRaises(ContractError):
+            qualified_identity(BY_KEY[25], {"id": -7})
+        for invalid_parent in (-(2**63) - 1, 2**63, True, "-7"):
+            with self.subTest(invalid_parent=invalid_parent), self.assertRaisesRegex(
+                ContractError, "invalid_parent_code_int64"
+            ):
+                _store_record(conn, RUN_ID, BY_KEY[25], dict(row, idNadrejeni=invalid_parent))
+
+    def test_quarantined_retry_requires_same_archived_bytes_without_occurrences(self):
+        body = b'{"data":[]}'
+        reply = Reply(200, body, hashlib.sha256(body).digest(), "application/json", None,
+                      "identity", None, None, 0)
+        conn = MagicMock()
+        old = ("CONTRACT_ERROR", "projection_rejected", 200, reply.sha256, body, False)
+        conn.execute.return_value.fetchone.return_value = old
+        conn.execute.return_value.rowcount = 1
+        requeue_quarantined_sifranti(conn, RUN_ID, "op25:all", reply)
+        self.assertEqual(conn.execute.call_count, 2)
+        self.assertIn("status='QUARANTINED'", conn.execute.call_args.args[0])
+        self.assertIn("status='RETRY'", conn.execute.call_args.args[0])
+        for invalid in (None, (*old[:4], b"other", False), (*old[:-1], True)):
+            with self.subTest(source=invalid), self.assertRaisesRegex(
+                RuntimeError, "quarantined_capture_not_replayable"
+            ):
+                conn.execute.reset_mock()
+                conn.execute.return_value.fetchone.return_value = invalid
+                requeue_quarantined_sifranti(conn, RUN_ID, "op25:all", reply)
+            self.assertEqual(conn.execute.call_count, 1)
+
+    def test_readback_verifies_typed_parent_in_addition_to_raw_bytes(self):
+        item = {"id": 123, "idNadrejeni": -7}
+        body = json.dumps({"data": [item]}).encode()
+        reply = Reply(200, body, hashlib.sha256(body).digest(), "application/json", None,
+                      "identity", None, None, 0)
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = (RUN_ID, 25, reply.sha256, 200, body, len(body))
+        row = (0, "/data/0", "CODE_LIST", "", "123", item)
+        conn.execute.return_value.fetchall.return_value = [(*row, "-7", True)]
+        self.assertTrue(verify_archive(conn, 1, expected_sifranti=reply)["identity_parity"])
+        conn.execute.return_value.fetchall.return_value = [(*row, None, True)]
+        with self.assertRaisesRegex(RuntimeError, "archive_identity_or_occurrence_mismatch"):
+            verify_archive(conn, 1, expected_sifranti=reply)
 
     def test_missing_or_bad_locator_fails_closed(self):
         self.assertEqual(request_path(BY_KEY[26],"128070"),"/sifranti/128070")

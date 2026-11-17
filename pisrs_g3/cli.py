@@ -14,7 +14,7 @@ from .storage import (
     connect, migrate, verify_tables, protected_file, source_lock,
     register_contract, verify_registered_contract, get_or_create_canary_run, queue_work, begin_attempt,
     record_stopped, archive_reply, project_reply, latest_attempt, verify_archive,
-    protected_sifranti_reply,
+    protected_sifranti_reply, requeue_quarantined_sifranti,
 )
 
 
@@ -112,6 +112,8 @@ def canary_command(args) -> dict:
                     "get_requests":0,"source_publication":"NOT_RUN"}
         if old == "LEASED":
             raise RuntimeError("active_or_stale_lease_requires_review")
+        if old == "QUARANTINED" and original is not None and args.retry_quarantined_capture:
+            requeue_quarantined_sifranti(conn, run, key, original)
         attempt = begin_attempt(conn,run,op.key,key)
         reply = original
         try:
@@ -125,7 +127,7 @@ def canary_command(args) -> dict:
         archive_reply(conn,run,op.key,key,attempt,reply,protected_capture=original is not None)
         try:
             proof=project_reply(conn,run,op.key,key,attempt,reply)
-        except (ContractError, ValueError, TypeError) as exc:
+        except (ValueError, TypeError) as exc:
             # The complete original survives; typed projection is quarantined.
             with conn.transaction():
                 conn.execute(
@@ -139,7 +141,11 @@ def canary_command(args) -> dict:
                        WHERE run_id=%s AND work_key=%s""",
                     (UUID(run),key),
                 )
-            return {"canary":"QUARANTINED","reason":"projection_rejected",
+            projection_reason = (
+                "invalid_parent_code_int64" if str(exc) == "invalid_parent_code_int64"
+                else "projection_rejected"
+            )
+            return {"canary":"QUARANTINED","reason":projection_reason,
                     "get_requests":requests_used,"source_publication":"NOT_RUN"}
         independent=verify_archive(conn,attempt,expected_sifranti=original)
         return {"canary":"RAW_AND_TYPED_ARCHIVED","source_operation":25,"run_id":run,
@@ -172,6 +178,8 @@ def main(argv=None) -> int:
             capture = p.add_mutually_exclusive_group(required=True)
             capture.add_argument("--token-file",help="private 0600 /data PISRS token for one GET")
             capture.add_argument("--evidence-file",help="private original /sifranti capture pinned by G1")
+            p.add_argument("--retry-quarantined-capture", action="store_true",
+                           help="retry projection only when the quarantined archive matches the evidence")
             p.add_argument("--pace",type=float,default=3.0)
             p.add_argument("--max-response-bytes",type=int,default=4*1024*1024)
             p.add_argument("--deadline",type=int,default=90)
@@ -179,6 +187,8 @@ def main(argv=None) -> int:
             p.add_argument("--attempt-id",type=int,required=True)
             p.add_argument("--evidence-file",help="compare with the independent protected G1 original")
     args=parser.parse_args(argv)
+    if args.action == "canary" and args.retry_quarantined_capture and not args.evidence_file:
+        parser.error("--retry-quarantined-capture requires --evidence-file")
     try:
         result=check_contract() if args.action=="check-contract" else {
             "preflight":preflight_command,
@@ -205,6 +215,7 @@ def main(argv=None) -> int:
             "archive_identity_or_occurrence_mismatch","archive_attempt_not_open",
             "postgresql_tls_verification_required","body_budget","unbounded_source_budget",
             "wrong_staging_connection_target",
+            "quarantined_capture_not_replayable",
         }
         print(json.dumps({"result":"STOPPED",
                           "reason":code if code in allowed else "review_required"},

@@ -8,7 +8,8 @@ exit_reason=command_failed
 state_file=
 network_id=
 container_id=
-temporary_originals=()
+manage_container=no
+temporary_files=()
 label=org.openlegalcore.pisrs.bootstrap
 stop() { exit_reason=$1; exit 2; }
 
@@ -20,10 +21,10 @@ record_state() {
 
 begin_stage() { stage=$1; record_state IN_PROGRESS; }
 
-remove_temporary_originals() {
-    if (( ${#temporary_originals[@]} > 0 )); then
-        rm -f -- "${temporary_originals[@]}" || return 1
-        temporary_originals=()
+remove_temporary_files() {
+    if (( ${#temporary_files[@]} > 0 )); then
+        rm -f -- "${temporary_files[@]}" || return 1
+        temporary_files=()
     fi
 }
 
@@ -32,7 +33,10 @@ finish() {
     (( rc != 0 )) || return 0
     trap '' HUP INT TERM
     case "$exit_reason" in SIGHUP|SIGINT|SIGTERM) status=INTERRUPTED ;; esac
-    if [[ -n $container_id ]]; then
+    if [[ ${mode:-} == resume && -n $state_file ]]; then
+        container_action=already_stopped
+    fi
+    if [[ $manage_container == yes ]]; then
         if ! running=$(timeout -k 3s 20s "${docker_cli[@]}" inspect --type container \
             --format "{{index .Config.Labels \"$label\"}} {{.State.Running}}" "$container_id"); then
             container_action=inspect_failed
@@ -46,7 +50,7 @@ finish() {
             container_action=stop_failed
         fi
     fi
-    if ! remove_temporary_originals; then
+    if ! remove_temporary_files; then
         printf 'OLC97 protected_copy_cleanup_failed stage=%s\n' "$stage" >&2
     fi
     if [[ -n $state_file ]] && ! record_state "$status" "$exit_reason" "$container_action"; then
@@ -73,12 +77,139 @@ bridge=pisrs-piki-staging
 docker_cli=(/usr/bin/docker --host unix:///var/run/docker.sock)
 operator_git() { /usr/sbin/runuser -u "$operator" -- /usr/bin/git -C "$repo" "$@"; }
 
-check_only=no
-if [[ $# == 1 && $1 == --check ]]; then
-    check_only=yes
-elif (( $# != 0 )); then
-    stop unexpected_arguments
-fi
+start_postgresql() {
+    local attempt
+    manage_container=yes
+    "${docker_cli[@]}" start "$container_id" >/dev/null
+    for ((attempt=0; attempt<60; attempt++)); do
+        if "${docker_cli[@]}" exec --user 70:70 "$container_id" pg_isready -q -h 127.0.0.1; then
+            [[ $("${docker_cli[@]}" port "$container_id" 5432/tcp) == 127.0.0.1:15432 ]] || stop unexpected_pg_publish
+            return
+        fi
+        sleep 1
+    done
+    stop postgresql_not_ready
+}
+
+app_as() {
+    local account=$1
+    shift
+    /usr/sbin/runuser -u "$account" -- "$python" -IB "${app_args[@]}" "$@"
+}
+
+accept_capture() {
+    local first second rc attempt_id path
+    local source_conn=$root/secrets/pisrs-source/conninfo
+    local reader_conn=$root/secrets/pisrs-backup/conninfo
+    local source_original=$root/work/pisrs-source/sifranti-index.body
+    local reader_original=$root/work/pisrs-backup/sifranti-index.body
+    local canary_args=(canary --pg-conn-file "$source_conn" --evidence-file "$source_original")
+    local expected=RAW_AND_TYPED_ARCHIVED
+    if [[ $mode == resume ]]; then
+        canary_args+=(--retry-quarantined-capture)
+        expected=ALREADY_ARCHIVED
+    fi
+    for path in "$source_original" "$reader_original"; do
+        [[ ! -e $path && ! -L $path ]] || stop acceptance_copy_already_exists
+    done
+    temporary_files+=("$source_original" "$reader_original")
+    install -m 0600 -o pisrs-source "${captures[0]}" "$source_original"
+    install -m 0600 -o pisrs-backup "${captures[0]}" "$reader_original"
+    cd "$release/src/tests"
+    if [[ $mode == fresh ]]; then
+        /usr/sbin/runuser -u pisrs-source -- env "PISRS_G3_TEST_SOURCE=$source_conn" \
+            "$python" -B -m unittest test_g3_postgres.ArchiveAcceptanceTests.test_transport_failure_leaves_no_success_checkpoint
+    fi
+    if first=$(app_as pisrs-source "${canary_args[@]}"); then
+        printf '%s\n' "$first"
+    else
+        rc=$?
+        printf '%s\n' "$first" >&2
+        exit_reason=first_canary_failed
+        exit "$rc"
+    fi
+    attempt_id=$("$python" -IB -c 'import json,sys; r=json.load(sys.stdin); assert r["result"]=="PASS" and r["canary"] in {"RAW_AND_TYPED_ARCHIVED", sys.argv[1]} and r["get_requests"]==0; print(int(r["attempt_id"]))' "$expected" <<< "$first")
+    app_as pisrs-backup readback --pg-conn-file "$reader_conn" \
+        --attempt-id "$attempt_id" --evidence-file "$reader_original"
+    if second=$(app_as pisrs-source "${canary_args[@]}"); then
+        printf '%s\n' "$second"
+    else
+        rc=$?
+        printf '%s\n' "$second" >&2
+        exit_reason=replay_canary_failed
+        exit "$rc"
+    fi
+    "$python" -IB -c 'import json,sys; r=json.load(sys.stdin); assert r["result"]=="PASS" and r["canary"]=="ALREADY_ARCHIVED" and r["attempt_id"]==int(sys.argv[1]) and r["get_requests"]==0' "$attempt_id" <<< "$second"
+    /usr/sbin/runuser -u pisrs-backup -- env "PISRS_G3_TEST_READER=$reader_conn" \
+        "$python" -B -m unittest test_g3_postgres.ArchiveAcceptanceTests.test_initial_archive_counts_and_role_boundaries
+    remove_temporary_files || stop protected_copy_cleanup_failed
+    begin_stage enable_restart_policy
+    "${docker_cli[@]}" update --restart unless-stopped "$container_id" >/dev/null
+    stage=finished
+    record_state COMPLETE
+    printf 'OLC97 PASS protected_capture_attempt=%s live_gets=0\n' "$attempt_id"
+}
+
+resume_acceptance() {
+    local ledger=$root/bootstrap.state original last original_commit image_id identity mounts ports net listeners app_archive path
+    local first_pattern='^status=IN_PROGRESS stage=release commit=([0-9a-f]{40}) run=([0-9a-f]{32}) network=none container=none reason=none container_action=none$'
+    local last_pattern='^status=(FAILED|INTERRUPTED) stage=(acceptance|enable_restart_policy) commit=([0-9a-f]{40}) run=([0-9a-f]{32}) network=([0-9a-f]{64}) container=([0-9a-f]{64}) reason=[a-zA-Z0-9_]+ container_action=(stopped|already_stopped)$'
+    [[ ! -L $root && $(stat -c '%u:%a' "$root") == 0:755 ]] || stop resume_root_unverified
+    [[ -f $ledger && ! -L $ledger && $(stat -c '%u:%a' "$ledger") == 0:600 ]] || stop resume_state_unverified
+    [[ -d $root/work && ! -L $root/work && $(stat -c '%u:%a' "$root/work") == 0:755 ]] || stop resume_work_path_unverified
+    for path in "$root/work/pisrs-source" "$root/work/pisrs-backup"; do
+        [[ -d $path && ! -L $path && $(stat -c '%u:%a' "$path") == 0:750 ]] || stop resume_work_path_unverified
+        [[ ! -e $path/sifranti-index.body && ! -L $path/sifranti-index.body ]] || stop acceptance_copy_already_exists
+    done
+    IFS= read -r original < "$ledger" || stop resume_state_unverified
+    [[ $original =~ $first_pattern ]] || stop resume_state_unverified
+    original_commit=${BASH_REMATCH[1]}
+    run_id=${BASH_REMATCH[2]}
+    last=$(tail -n 1 -- "$ledger")
+    [[ $last =~ $last_pattern && ${BASH_REMATCH[4]} == "$run_id" ]] || stop resume_state_unverified
+    network_id=${BASH_REMATCH[5]}
+    container_id=${BASH_REMATCH[6]}
+    operator_git merge-base --is-ancestor "$original_commit" "$commit" || stop resume_release_unverified
+    operator_git diff --quiet "$original_commit" "$commit" -- pisrs_g3/migrations || stop resume_migration_changed
+    release=$root/releases/$original_commit
+    python=$release/venv/bin/python
+    [[ -x $python && -d $release/src/tests ]] || stop resume_release_unverified
+
+    image_id=$("${docker_cli[@]}" image inspect --format '{{.Id}}' "$image") || stop resume_image_unverified
+    [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || stop resume_image_unverified
+    identity=$("${docker_cli[@]}" inspect --type container --format \
+        "{{.Name}} {{.Image}} {{.State.Status}} {{.HostConfig.RestartPolicy.Name}} {{.HostConfig.NetworkMode}} {{index .Config.Labels \"$label\"}}" "$container_id") || stop resume_container_unverified
+    [[ $identity == "/$container $image_id exited no $network_id $run_id" ]] || stop resume_container_unverified
+    mounts=$("${docker_cli[@]}" inspect --type container --format \
+        '{{range .Mounts}}{{println .Type .Source .Destination .RW}}{{end}}' "$container_id" | sort) || stop resume_mounts_unverified
+    [[ $mounts == "bind $root/pg/conf /run/pisrs-pg false"$'\n'"bind $root/pg/data /var/lib/postgresql true" ]] || stop resume_mounts_unverified
+    ports=$("${docker_cli[@]}" inspect --type container --format \
+        '{{range $port,$bindings := .HostConfig.PortBindings}}{{range $bindings}}{{println $port .HostIp .HostPort}}{{end}}{{end}}' "$container_id") || stop resume_port_unverified
+    [[ $ports == '5432/tcp 127.0.0.1 15432' ]] || stop resume_port_unverified
+    net=$("${docker_cli[@]}" network inspect --format "{{.Name}} {{.Driver}} {{index .Labels \"$label\"}}" "$network_id") || stop resume_network_unverified
+    [[ $net == "$bridge bridge $run_id" ]] || stop resume_network_unverified
+    listeners=$(ss -H -ltn '( sport = :15432 )') || stop resume_port_unverified
+    [[ -z $listeners ]] || stop project_port_in_use
+
+    state_file=$ledger
+    begin_stage acceptance
+    # Use the existing environment and a root-owned snapshot of the reviewed fix.
+    app_archive=$(mktemp "$root/work/acceptance-code.XXXXXXXX.zip")
+    temporary_files+=("$app_archive")
+    operator_git archive --format=zip "$commit" pisrs_g3 > "$app_archive"
+    chmod 0444 "$app_archive"
+    app_args=(-c 'import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); runpy.run_module("pisrs_g3",run_name="__main__",alter_sys=True)' "$app_archive")
+    start_postgresql
+    app_as "$operator" preflight --pg-conn-file "$root/secrets/operator/conninfo"
+    accept_capture
+}
+
+case "$#:${1:-}" in
+    0:) mode=fresh ;;
+    1:--check) mode=check ;;
+    1:--resume-acceptance) mode=resume ;;
+    *) stop unexpected_arguments ;;
+esac
 [[ $(operator_git branch --show-current) == piki/staging-foundation ]] || stop wrong_branch
 checkout_status=$(operator_git status --porcelain=v1) || stop checkout_status_unverified
 [[ -z $checkout_status ]] || stop dirty_checkout
@@ -87,13 +218,19 @@ operator_git merge-base --is-ancestor 62410ea890f82ae25aa9ddbfa19cca6c7a319a6f "
 # Keep the check and reservation exclusive without creating a lock file.
 exec {lock_fd}</data
 flock --exclusive --nonblock "$lock_fd" || stop bootstrap_lock_unavailable
-/bin/bash "$repo/ops/g3_check_piki.sh" || stop preflight_rejected
+if [[ $mode != resume ]]; then
+    /bin/bash "$repo/ops/g3_check_piki.sh" || stop preflight_rejected
+fi
 mapfile -t captures < <(find /data/projects/.pisrs-g1-evidence -maxdepth 2 -type f -name sifranti-index.body)
 [[ ${#captures[@]} == 1 ]] || stop original_evidence_missing_or_ambiguous
 [[ $(stat -c '%a' "${captures[0]}") == 600 ]] || stop original_evidence_permissions
 [[ $(sha256sum < "${captures[0]}") == "$archive_hash  -" ]] || stop original_evidence_digest
-if [[ $check_only == yes ]]; then
+if [[ $mode == check ]]; then
     printf 'OLC97 CHECK PASS commit=%s\n' "$commit"
+    exit 0
+fi
+if [[ $mode == resume ]]; then
+    resume_acceptance
     exit 0
 fi
 
@@ -183,17 +320,7 @@ new_container=$("${docker_cli[@]}" create --name "$container" --platform linux/a
 [[ $new_container =~ ^[0-9a-f]{64}$ ]] || stop unexpected_container_id
 container_id=$new_container
 begin_stage start_postgresql_container
-"${docker_cli[@]}" start "$container_id" >/dev/null
-ready=0
-for ((attempt=0; attempt<60; attempt++)); do
-    if "${docker_cli[@]}" exec --user 70:70 "$container_id" pg_isready -q -h 127.0.0.1; then
-        ready=1
-        break
-    fi
-    sleep 1
-done
-(( ready == 1 )) || stop postgresql_not_ready
-[[ $("${docker_cli[@]}" port "$container_id" 5432/tcp) == 127.0.0.1:15432 ]] || stop unexpected_pg_publish
+start_postgresql
 psql() {
     "${docker_cli[@]}" exec --user 70:70 -i "$container_id" psql -X -v ON_ERROR_STOP=1 \
         -h /var/run/postgresql -U postgres -d postgres "$@"
@@ -232,33 +359,5 @@ cd "$release"
 /usr/sbin/runuser -u "$operator" -- "$python" -IB -m pisrs_g3 migrate \
     --pg-conn-file "$root/secrets/operator/conninfo"
 begin_stage acceptance
-source_conn=$root/secrets/pisrs-source/conninfo
-reader_conn=$root/secrets/pisrs-backup/conninfo
-source_original=$root/work/pisrs-source/sifranti-index.body
-reader_original=$root/work/pisrs-backup/sifranti-index.body
-temporary_originals=("$source_original" "$reader_original")
-install -m 0600 -o pisrs-source "${captures[0]}" "$source_original"
-install -m 0600 -o pisrs-backup "${captures[0]}" "$reader_original"
-cd "$release/src/tests"
-/usr/sbin/runuser -u pisrs-source -- env "PISRS_G3_TEST_SOURCE=$source_conn" \
-    "$python" -B -m unittest test_g3_postgres.ArchiveAcceptanceTests.test_transport_failure_leaves_no_success_checkpoint
-canary() {
-    /usr/sbin/runuser -u pisrs-source -- "$python" -IB -m pisrs_g3 canary \
-        --pg-conn-file "$source_conn" --evidence-file "$source_original"
-}
-first=$(canary)
-printf '%s\n' "$first"
-attempt_id=$(printf '%s' "$first" | "$python" -IB -c 'import json,sys; r=json.load(sys.stdin); assert r["canary"]=="RAW_AND_TYPED_ARCHIVED"; print(r["attempt_id"])')
-/usr/sbin/runuser -u pisrs-backup -- "$python" -IB -m pisrs_g3 readback \
-    --pg-conn-file "$reader_conn" --attempt-id "$attempt_id" --evidence-file "$reader_original"
-second=$(canary)
-printf '%s\n' "$second"
-printf '%s' "$second" | "$python" -IB -c 'import json,sys; r=json.load(sys.stdin); assert r["canary"]=="ALREADY_ARCHIVED" and r["attempt_id"]==int(sys.argv[1]) and r["get_requests"]==0' "$attempt_id"
-/usr/sbin/runuser -u pisrs-backup -- env "PISRS_G3_TEST_READER=$reader_conn" \
-    "$python" -B -m unittest test_g3_postgres.ArchiveAcceptanceTests.test_initial_archive_counts_and_role_boundaries
-remove_temporary_originals || stop protected_copy_cleanup_failed
-begin_stage enable_restart_policy
-"${docker_cli[@]}" update --restart unless-stopped "$container_id" >/dev/null
-stage=finished
-record_state COMPLETE
-printf 'OLC97 PASS protected_capture_attempt=%s live_gets=0\n' "$attempt_id"
+app_args=(-m pisrs_g3)
+accept_capture

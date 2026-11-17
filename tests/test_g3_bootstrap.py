@@ -15,6 +15,7 @@ COMMIT = "c" * 40
 RUN = "a" * 32
 CONTAINER = "b" * 64
 NETWORK = "d" * 64
+IMAGE_ID = "sha256:" + "e" * 64
 
 SHIM = r'''#!/bin/bash
 set -eu
@@ -34,6 +35,13 @@ case "$command" in
         esac
         ;;
     ss) if [[ $SCENARIO == listener_conflict ]]; then echo listener; fi ;;
+    stat)
+        if [[ $2 == %u:%a ]]; then
+            printf '0:%s\n' "$(/usr/bin/stat -c '%a' "$3")"
+        else
+            exec /usr/bin/stat "$@"
+        fi
+        ;;
     sudo)
         printf 'sudo %s\n' "$*" >> "$TRACE"
         [[ $1 == -n && $2 == -- ]]
@@ -45,14 +53,20 @@ case "$command" in
         if [[ ${1##*/} == git ]]; then
             case "$4" in
                 branch) echo piki/staging-foundation ;;
-                status|merge-base|archive) : ;;
+                status|merge-base|archive|diff) : ;;
                 rev-parse) echo "$COMMIT" ;;
                 *) exit 91 ;;
             esac
         else
             printf 'app %s\n' "$*" >> "$TRACE"
-            [[ $SCENARIO == copy_failure || $SCENARIO == success ]] || exit 92
-            if [[ $* == *' canary '* ]]; then echo '{}'; fi
+            case "$SCENARIO" in copy_failure|success|canary_failure|resume*) : ;; *) exit 92 ;; esac
+            if [[ $* == *' canary '* ]]; then
+                if [[ $SCENARIO == canary_failure ]]; then
+                    echo '{"result":"STOPPED","reason":"projection_rejected"}'
+                    exit 2
+                fi
+                echo '{}'
+            fi
         fi
         ;;
     tar) mkdir -p "$3/tests" ;;
@@ -113,6 +127,21 @@ case "$command" in
                 esac
                 ;;
             inspect)
+                if [[ $SCENARIO == resume* ]]; then
+                    [[ ${!#} == "$CONTAINER" ]]
+                    case "$*" in
+                        *'.HostConfig.NetworkMode'*) echo "/pisrs-piki-pg $IMAGE_ID exited no $NETWORK $RUN" ;;
+                        *'.Mounts'*)
+                            if [[ $SCENARIO == resume_wrong_mount ]]; then
+                                echo 'bind /other-data /var/lib/postgresql true'
+                            else
+                                printf 'bind %s/pisrs-staging/pg/data /var/lib/postgresql true\nbind %s/pisrs-staging/pg/conf /run/pisrs-pg false\n' "$DATA" "$DATA"
+                            fi ;;
+                        *'.HostConfig.PortBindings'*) echo '5432/tcp 127.0.0.1 15432' ;;
+                        *) echo "$RUN true" ;;
+                    esac
+                    exit 0
+                fi
                 case "$SCENARIO" in
                     mount_conflict) echo "mount $WORK/data-alias" ;;
                     port_conflict) echo 'port 15432' ;;
@@ -127,11 +156,15 @@ case "$command" in
                 case "$2" in
                     ls) if [[ $SCENARIO == network_conflict ]]; then echo pisrs-piki-staging; fi ;;
                     create) echo "$NETWORK" ;;
-                    inspect) [[ ${!#} == "$NETWORK" ]]; echo 172.23.0.1 ;;
+                    inspect)
+                        [[ ${!#} == "$NETWORK" ]]
+                        if [[ $SCENARIO == resume* ]]; then echo "pisrs-piki-staging bridge $RUN"; else echo 172.23.0.1; fi
+                        ;;
                     *) exit 93 ;;
                 esac
                 ;;
             pull|start|stop|update) : ;;
+            image) [[ $2 == inspect ]]; echo "$IMAGE_ID" ;;
             create) echo "$CONTAINER" ;;
             exec)
                 if [[ $* == *' pg_isready '* ]]; then
@@ -144,7 +177,7 @@ case "$command" in
                 ;;
             port)
                 case "$SCENARIO" in
-                    copy_failure|success) echo 127.0.0.1:15432 ;;
+                    copy_failure|success|canary_failure|resume*) echo 127.0.0.1:15432 ;;
                     *) echo invalid ;;
                 esac
                 ;;
@@ -179,7 +212,7 @@ class BootstrapTests(unittest.TestCase):
         shim = self.bin / "shim"
         shim.write_text(SHIM)
         shim.chmod(0o755)
-        for name in ("hostname", "uname", "id", "findmnt", "df", "getent", "ss", "sudo",
+        for name in ("hostname", "uname", "id", "findmnt", "df", "getent", "ss", "stat", "sudo",
                      "runuser", "tar", "useradd", "chown", "chgrp", "install", "openssl",
                      "python3", "docker"):
             (self.bin / name).symlink_to(shim)
@@ -199,7 +232,8 @@ class BootstrapTests(unittest.TestCase):
         environment = {"PATH": f"{self.bin}:/usr/bin:/bin", "TEST_EUID": euid,
                        "SUDO_USER": "operator", "TRACE": str(self.trace), "DATA": str(self.data),
                        "WORK": str(self.work), "BIN": str(self.bin), "SCENARIO": scenario,
-                       "COMMIT": COMMIT, "RUN": RUN, "CONTAINER": CONTAINER, "NETWORK": NETWORK}
+                       "COMMIT": COMMIT, "RUN": RUN, "CONTAINER": CONTAINER, "NETWORK": NETWORK,
+                       "IMAGE_ID": IMAGE_ID}
         return subprocess.run(
             ["/bin/bash", str(self.repo / "ops" / script), *args], env=environment,
             text=True, capture_output=True, timeout=10,
@@ -313,3 +347,55 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("test_initial_archive_counts_and_role_boundaries", trace[-2])
         self.assertEqual(trace[-1], f"docker update --restart unless-stopped {CONTAINER}")
         self.assertFalse(list((self.staging / "work").glob("pisrs-*/sifranti-index.body")))
+
+    def test_first_canary_failure_is_reported(self):
+        result = self.run_script("canary_failure")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('"reason":"projection_rejected"', result.stderr)
+        self.assertIn("reason=first_canary_failed", self.state.read_text())
+
+    def set_up_failed_acceptance(self):
+        self.staging.mkdir()
+        self.staging.chmod(0o755)
+        installed_commit = "e" * 40
+        release = self.staging / "releases" / installed_commit
+        (release / "venv/bin").mkdir(parents=True)
+        (release / "venv/bin/python").symlink_to(self.bin / "python3")
+        (release / "src/tests").mkdir(parents=True)
+        for role in ("pisrs-source", "pisrs-backup"):
+            work = self.staging / "work" / role
+            work.mkdir(parents=True)
+            work.chmod(0o750)
+        (self.staging / "work").chmod(0o755)
+        head = f"status=IN_PROGRESS stage=release commit={installed_commit} run={RUN}"
+        tail = f"status=FAILED stage=acceptance commit={installed_commit} run={RUN}"
+        self.state.write_text(
+            f"{head} network=none container=none reason=none container_action=none\n"
+            f"{tail} network={NETWORK} container={CONTAINER} reason=command_failed container_action=stopped\n"
+        )
+        self.state.chmod(0o600)
+
+    def test_resume_uses_existing_container_and_protected_original(self):
+        self.set_up_failed_acceptance()
+        result = self.run_script("resume", "--resume-acceptance")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        trace = self.trace.read_text()
+        self.assertIn(f"docker start {CONTAINER}", trace)
+        self.assertNotRegex(trace, r"(?m)^(docker (pull|network create|create|rm|volume rm)|useradd)")
+        self.assertNotIn(" migrate ", trace)
+        for command in (line for line in trace.splitlines() if " canary " in line):
+            self.assertIn("--retry-quarantined-capture", command)
+            self.assertIn("--evidence-file", command)
+            self.assertNotIn("--token-file", command)
+        self.assertEqual(trace.count(" canary "), 2)
+        self.assertIn("status=COMPLETE stage=finished", self.state.read_text())
+        self.assertFalse(list((self.staging / "work").glob("acceptance-code.*.zip")))
+
+    def test_resume_rejects_mount_drift_without_touching_container(self):
+        self.set_up_failed_acceptance()
+        state = self.state.read_text()
+        result = self.run_script("resume_wrong_mount", "--resume-acceptance")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("resume_mounts_unverified", result.stderr)
+        self.assert_no_provisioning()
+        self.assertEqual(self.state.read_text(), state)

@@ -258,9 +258,15 @@ def _bool(row: dict[str, Any], name: str) -> bool | None:
     return value
 
 
-def _optional_int(row: dict[str, Any], name: str) -> str | None:
-    value = row.get(name)
-    return int64_id(value) if value is not None else None
+def _parent_code_id(row: dict[str, Any]) -> str | None:
+    value = row.get("idNadrejeni")
+    if value is None:
+        return None
+    # A signed DTO field, including negative values in the root catalogue.
+    # It remains source metadata and is never used as a lookup identity here.
+    if type(value) is not int or not -(2**63) <= value < 2**63:
+        raise ContractError("invalid_parent_code_int64")
+    return str(value)
 
 
 def _store_record(conn, run: str, op, row: dict[str, Any], parent: str = "") -> tuple[int, int]:
@@ -288,7 +294,7 @@ def _store_record(conn, run: str, op, row: dict[str, Any], parent: str = "") -> 
         _date(row, "datumPrenehanjaVeljavnosti"), _date(row, "datumKoncaUporabe"),
         _date(row, "datumDolocitveOznake"), _date(row, "datumRokaZaPrenos"),
         _date(row, "datumDokumenta"), _text(row, "stevilka"),
-        _optional_int(row, "idNadrejeni"),
+        _parent_code_id(row),
     )
     vh = payload_hash(row)
     query = """INSERT INTO pisrs.record_revision (
@@ -388,6 +394,30 @@ def begin_attempt(conn, run: str, key: int, work_key: str, *, sweep: int = 0) ->
             (uuid.UUID(run), key, sweep, work_key, retry),
         ).fetchone()
     return row[0]
+
+
+def requeue_quarantined_sifranti(conn, run: str, work_key: str, reply: Reply) -> None:
+    """Allow an explicit offline retry of a rejected projection of the same capture."""
+    identity = (uuid.UUID(run), work_key)
+    with conn.transaction():
+        previous = conn.execute(
+            """SELECT a.result,a.reason_code,a.http_status,a.sha256,b.raw_bytes,
+                      EXISTS (SELECT 1 FROM pisrs.source_occurrence o
+                              WHERE o.run_id=a.run_id AND o.source_key=a.source_key)
+               FROM pisrs.source_attempt a LEFT JOIN pisrs.source_blob b ON b.sha256=a.sha256
+               WHERE a.run_id=%s AND a.work_key=%s AND a.source_key=25 AND a.sweep=0
+               ORDER BY a.retry_no DESC LIMIT 1""", identity,
+        ).fetchone()
+        if previous != ("CONTRACT_ERROR", "projection_rejected", 200, reply.sha256, reply.body, False):
+            raise RuntimeError("quarantined_capture_not_replayable")
+        updated = conn.execute(
+            """UPDATE pisrs.source_work SET status='RETRY'
+               WHERE run_id=%s AND work_key=%s AND source_key=25 AND sweep=0
+                 AND request_target='/sifranti' AND status='QUARANTINED'
+                 AND terminal_attempt_id IS NULL AND lease_until IS NULL""", identity,
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("quarantined_capture_not_replayable")
 
 
 def record_stopped(conn, run: str, work_key: str, attempt_id: int, reason: str,
@@ -521,12 +551,13 @@ def verify_archive(conn, attempt_id: int, *, expected_sifranti: Reply | None = N
             raise RuntimeError("archive_original_mismatch")
         # Decode the independent original directly, without the ingest projector.
         expected = [
-            (ordinal, f"/data/{ordinal}", "CODE_LIST", "", str(item["id"]), item, True)
+            (ordinal, f"/data/{ordinal}", "CODE_LIST", "", str(item["id"]), item,
+             str(item["idNadrejeni"]) if item.get("idNadrejeni") is not None else None, True)
             for ordinal, item in enumerate(json.loads(expected_sifranti.body)["data"])
         ]
         actual = conn.execute(
             """SELECT o.ordinal,o.json_pointer,r.namespace,r.parent_key,r.source_id,
-                      v.raw_jsonb,o.selected
+                      v.raw_jsonb,v.parent_code_id,o.selected
                FROM pisrs.source_occurrence o
                JOIN pisrs.source_record r USING (record_id)
                JOIN pisrs.record_revision v USING (record_revision_id,record_id)
