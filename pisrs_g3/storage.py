@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import hashlib
+import json
 import os
 from pathlib import Path
 import stat
@@ -23,6 +24,10 @@ LOCK_ID = 3141592671
 
 def protected_file(path: str) -> str:
     """Secrets cannot be read from insecure locations or displayed in logs."""
+    return _protected_path(path).read_text(encoding="utf-8").strip()
+
+
+def _protected_path(path: str) -> Path:
     p = Path(path)
     if not p.is_absolute() or p.is_symlink():
         raise ValueError("protected_absolute_data_path_required")
@@ -34,7 +39,21 @@ def protected_file(path: str) -> str:
         raise ValueError("protected_file_must_be_0600")
     if meta.st_uid not in (0, os.geteuid()):
         raise ValueError("protected_file_owner_mismatch")
-    return resolved.read_text(encoding="utf-8").strip()
+    return resolved
+
+
+def protected_sifranti_reply(path: str, max_bytes: int) -> Reply:
+    """Read the G1 /sifranti original pinned by the accepted API evidence."""
+    if not 0 < max_bytes <= 4 * 1024 * 1024:
+        raise ValueError("unbounded_source_budget")
+    with _protected_path(path).open("rb") as evidence:
+        body = evidence.read(max_bytes + 1)
+    if len(body) > max_bytes:
+        raise ValueError("body_budget")
+    digest = hashlib.sha256(body).digest()
+    if digest.hex() != "3876f37e71817888ec4a96354343253af1f238bb78c9dc24053b10e7b98082e4":
+        raise RuntimeError("protected_evidence_hash_mismatch")
+    return Reply(200, body, digest, "application/json", None, "identity", None, None, 0)
 
 
 def connect(dsn_path: str):
@@ -49,6 +68,10 @@ def connect(dsn_path: str):
         args = conninfo_to_dict(conninfo)
     except Exception:
         raise ValueError("invalid_protected_pg_connection") from None
+    if (args.get("host") != "127.0.0.1" or args.get("hostaddr", "127.0.0.1") != "127.0.0.1"
+            or args.get("port") != "15432" or args.get("dbname") != "pisrs_staging"
+            or "service" in args):
+        raise RuntimeError("wrong_staging_connection_target")
     if args.get("sslmode") != "verify-full" or not args.get("sslrootcert"):
         raise RuntimeError("postgresql_tls_verification_required")
     try:
@@ -157,10 +180,11 @@ def verify_registered_contract(conn) -> None:
         raise RuntimeError("pinned_contract_drift")
 
 
-def get_or_create_open_run(conn) -> str:
+def get_or_create_canary_run(conn) -> str:
     row = conn.execute(
         """SELECT run_id FROM pisrs.source_run
-           WHERE revision=%s AND kind='INITIAL' AND status IN ('OPEN','INCOMPLETE')
+           WHERE revision=%s AND kind='VERIFY' AND evidence->>'scope'='G3_sifranti_canary'
+             AND status IN ('OPEN','INCOMPLETE')
            ORDER BY started_at LIMIT 1""",
         (REVISION,),
     ).fetchone()
@@ -171,8 +195,8 @@ def get_or_create_open_run(conn) -> str:
         conn.execute(
             """INSERT INTO pisrs.source_run
                (run_id,revision,kind,status,evidence)
-               VALUES (%s,%s,'INITIAL','OPEN',%s::jsonb)""",
-            (run, REVISION, canonical({"g2_commit": G2_COMMIT, "scope": "G3_open_unpublished"})),
+               VALUES (%s,%s,'VERIFY','OPEN',%s::jsonb)""",
+            (run, REVISION, canonical({"g2_commit": G2_COMMIT, "scope": "G3_sifranti_canary"})),
         )
     return str(run)
 
@@ -385,7 +409,7 @@ def record_stopped(conn, run: str, work_key: str, attempt_id: int, reason: str,
 
 
 def archive_reply(conn, run: str, key: int, work_key: str, attempt_id: int, reply: Reply,
-                  *, sweep: int = 0) -> None:
+                  *, sweep: int = 0, protected_capture: bool = False) -> None:
     if hashlib.sha256(reply.body).digest() != reply.sha256:
         raise RuntimeError("source_body_hash_mismatch")
     with conn.transaction():
@@ -400,14 +424,19 @@ def archive_reply(conn, run: str, key: int, work_key: str, attempt_id: int, repl
         ).fetchone()
         if not prev or prev[0] != len(reply.body) or bytes(prev[1]) != reply.body:
             raise RuntimeError("hash_collision_or_archival_corruption")
-        conn.execute(
+        attempt = conn.execute(
             """UPDATE pisrs.source_attempt SET ended_at=clock_timestamp(),
                result='HTTP_COMPLETE',http_status=%s,sha256=%s,content_type=%s,
-               content_encoding=%s,media_charset=%s,etag=%s,last_modified=%s
-               WHERE attempt_id=%s AND run_id=%s AND result='OPEN'""",
+               content_encoding=%s,media_charset=%s,etag=%s,last_modified=%s,reason_code=%s
+               WHERE attempt_id=%s AND run_id=%s AND source_key=%s AND sweep=%s
+                 AND work_key=%s AND result='OPEN'""",
             (reply.status, reply.sha256, reply.content_type,reply.content_encoding,
-             reply.charset,reply.etag,reply.last_modified,attempt_id,uuid.UUID(run)),
+             reply.charset,reply.etag,reply.last_modified,
+             "protected_g1_capture" if protected_capture else None,
+             attempt_id,uuid.UUID(run),key,sweep,work_key),
         )
+        if attempt.rowcount != 1:
+            raise RuntimeError("archive_attempt_not_open")
 
 
 def project_reply(conn, run: str, key: int, work_key: str, attempt_id: int, reply: Reply,
@@ -474,7 +503,7 @@ def project_reply(conn, run: str, key: int, work_key: str, attempt_id: int, repl
             "source_run_published": False}
 
 
-def verify_archive(conn, attempt_id: int) -> dict[str, Any]:
+def verify_archive(conn, attempt_id: int, *, expected_sifranti: Reply | None = None) -> dict[str, Any]:
     """Independent SQL readback of exact body and retained occurrences."""
     row = conn.execute(
         """SELECT a.run_id,a.source_key,a.sha256,a.http_status,b.raw_bytes,b.byte_length
@@ -487,11 +516,33 @@ def verify_archive(conn, attempt_id: int) -> dict[str, Any]:
     run,key,digest, status,body, byte_length = row
     if status != 200 or len(body) != byte_length or hashlib.sha256(bytes(body)).digest()!=bytes(digest):
         raise RuntimeError("archive_readback_mismatch")
+    if expected_sifranti is not None:
+        if key != 25 or bytes(body) != expected_sifranti.body:
+            raise RuntimeError("archive_original_mismatch")
+        # Decode the independent original directly, without the ingest projector.
+        expected = [
+            (ordinal, f"/data/{ordinal}", "CODE_LIST", "", str(item["id"]), item, True)
+            for ordinal, item in enumerate(json.loads(expected_sifranti.body)["data"])
+        ]
+        actual = conn.execute(
+            """SELECT o.ordinal,o.json_pointer,r.namespace,r.parent_key,r.source_id,
+                      v.raw_jsonb,o.selected
+               FROM pisrs.source_occurrence o
+               JOIN pisrs.source_record r USING (record_id)
+               JOIN pisrs.record_revision v USING (record_revision_id,record_id)
+               WHERE o.attempt_id=%s ORDER BY o.ordinal""",
+            (attempt_id,),
+        ).fetchall()
+        if actual != expected:
+            raise RuntimeError("archive_identity_or_occurrence_mismatch")
+        return {"attempt_id":attempt_id,"run":str(run),"source_key":key,"bytes":byte_length,
+                "sha256":bytes(digest).hex(),"occurrences":len(actual),"raw_parity":True,
+                "identity_parity":True}
+
     count = conn.execute(
-        "SELECT count(*) FROM pisrs.source_occurrence WHERE attempt_id=%s",
-        (attempt_id,),
+        "SELECT count(*) FROM pisrs.source_occurrence WHERE attempt_id=%s", (attempt_id,),
     ).fetchone()[0]
-    return {"run":str(run),"source_key":key,"bytes":byte_length,
+    return {"attempt_id":attempt_id,"run":str(run),"source_key":key,"bytes":byte_length,
             "sha256":bytes(digest).hex(),"occurrences":count,"raw_parity":True}
 
 

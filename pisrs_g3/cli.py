@@ -5,14 +5,16 @@ import argparse
 import json
 import os
 import socket
+import sys
 from uuid import UUID
 
 from .contract import BY_KEY, PAGED_KEYS, ARRAY_KEYS, OPENAPI_SHA256, ContractError
 from .http import Client, SourceStopped
 from .storage import (
     connect, migrate, verify_tables, protected_file, source_lock,
-    register_contract, verify_registered_contract, get_or_create_open_run, queue_work, begin_attempt,
+    register_contract, verify_registered_contract, get_or_create_canary_run, queue_work, begin_attempt,
     record_stopped, archive_reply, project_reply, latest_attempt, verify_archive,
+    protected_sifranti_reply,
 )
 
 
@@ -25,7 +27,7 @@ def host_guard() -> None:
 
 def source_role(conn) -> None:
     data = conn.execute(
-        """SELECT rolname,rolsuper,rolcreatedb,rolcreaterole,rolreplication
+        """SELECT rolname,rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls
            FROM pg_catalog.pg_roles WHERE rolname=current_user"""
     ).fetchone()
     if not data or data[0] != "pisrs_source" or any(data[1:]):
@@ -81,14 +83,21 @@ def preflight_command(args) -> dict:
 
 def canary_command(args) -> dict:
     host_guard()
-    token = protected_file(args.token_file)
+    original = None
+    client = None
+    if args.evidence_file:
+        original = protected_sifranti_reply(args.evidence_file, args.max_response_bytes)
+    else:
+        client = Client(protected_file(args.token_file), min_interval=args.pace, max_requests=1,
+                        max_response_bytes=args.max_response_bytes,
+                        max_total_bytes=args.max_response_bytes, max_seconds=args.deadline)
     conn = connect(args.pg_conn_file)
     try:
         verify_tables(conn)
         source_role(conn)
         source_lock(conn)
         verify_registered_contract(conn)
-        run = get_or_create_open_run(conn)
+        run = get_or_create_canary_run(conn)
         op = BY_KEY[25]  # fixed, known-safe bounded dictionary index
         key = queue_work(conn,run,op.key)
         old = conn.execute(
@@ -98,21 +107,22 @@ def canary_command(args) -> dict:
         ).fetchone()[0]
         if old == "COMPLETE":
             old_id = latest_attempt(conn,run,key)
-            return {"canary":"ALREADY_ARCHIVED",**verify_archive(conn,old_id),
-                    "new_get_requests":0,"source_publication":"NOT_RUN"}
+            return {"canary":"ALREADY_ARCHIVED",
+                    **verify_archive(conn,old_id,expected_sifranti=original),
+                    "get_requests":0,"source_publication":"NOT_RUN"}
         if old == "LEASED":
             raise RuntimeError("active_or_stale_lease_requires_review")
         attempt = begin_attempt(conn,run,op.key,key)
-        client = Client(token,min_interval=args.pace,max_requests=1,
-                        max_response_bytes=args.max_response_bytes,
-                        max_total_bytes=args.max_response_bytes,max_seconds=args.deadline)
+        reply = original
         try:
-            reply=client.get(op.path)
+            if client is not None:
+                reply = client.get(op.path)
         except SourceStopped as stop:
             record_stopped(conn,run,key,attempt,stop.reason,status=stop.status)
             return {"canary":"STOPPED","reason":stop.reason,"http_status":stop.status,
                     "get_requests":client.requests_used,"source_publication":"NOT_RUN"}
-        archive_reply(conn,run,op.key,key,attempt,reply)
+        requests_used = client.requests_used if client is not None else 0
+        archive_reply(conn,run,op.key,key,attempt,reply,protected_capture=original is not None)
         try:
             proof=project_reply(conn,run,op.key,key,attempt,reply)
         except (ContractError, ValueError, TypeError) as exc:
@@ -130,20 +140,21 @@ def canary_command(args) -> dict:
                     (UUID(run),key),
                 )
             return {"canary":"QUARANTINED","reason":"projection_rejected",
-                    "get_requests":client.requests_used,"source_publication":"NOT_RUN"}
-        independent=verify_archive(conn,attempt)
+                    "get_requests":requests_used,"source_publication":"NOT_RUN"}
+        independent=verify_archive(conn,attempt,expected_sifranti=original)
         return {"canary":"RAW_AND_TYPED_ARCHIVED","source_operation":25,"run_id":run,
-                "http_status":reply.status,**proof,
-                "readback":independent,"get_requests":client.requests_used}
+                "attempt_id":attempt,"http_status":reply.status,**proof,
+                "readback":independent,"get_requests":requests_used}
     finally:
         close_safely(conn)
 
 
 def readback_command(args) -> dict:
     host_guard()
+    original = protected_sifranti_reply(args.evidence_file, 4 * 1024 * 1024) if args.evidence_file else None
     conn = connect(args.pg_conn_file)
     try:
-        return verify_archive(conn,args.attempt_id)
+        return verify_archive(conn,args.attempt_id,expected_sifranti=original)
     finally:
         close_safely(conn)
 
@@ -158,12 +169,15 @@ def main(argv=None) -> int:
         p=sub.add_parser(action)
         p.add_argument("--pg-conn-file",required=True,help="private 0600 /data libpq conninfo")
         if action=="canary":
-            p.add_argument("--token-file",required=True,help="private 0600 /data PISRS token")
+            capture = p.add_mutually_exclusive_group(required=True)
+            capture.add_argument("--token-file",help="private 0600 /data PISRS token for one GET")
+            capture.add_argument("--evidence-file",help="private original /sifranti capture pinned by G1")
             p.add_argument("--pace",type=float,default=3.0)
             p.add_argument("--max-response-bytes",type=int,default=4*1024*1024)
             p.add_argument("--deadline",type=int,default=90)
         if action=="readback":
             p.add_argument("--attempt-id",type=int,required=True)
+            p.add_argument("--evidence-file",help="compare with the independent protected G1 original")
     args=parser.parse_args(argv)
     try:
         result=check_contract() if args.action=="check-contract" else {
@@ -172,8 +186,9 @@ def main(argv=None) -> int:
             "canary":canary_command,
             "readback":readback_command,
         }[args.action](args)
-        print(json.dumps({"result":"PASS",**result},ensure_ascii=False,sort_keys=True))
-        return 0
+        stopped = result.get("canary") in {"STOPPED", "QUARANTINED"}
+        print(json.dumps({"result":"STOPPED" if stopped else "PASS",**result},ensure_ascii=False,sort_keys=True))
+        return 2 if stopped else 0
     except (ContractError,SourceStopped,RuntimeError,ValueError,OSError) as exc:
         # No exception trace/DSN/body/credential leaves the CLI.
         code=str(exc)
@@ -186,10 +201,22 @@ def main(argv=None) -> int:
             "work_not_claimable","active_or_stale_lease_requires_review","attempt_cap",
             "protected_absolute_data_path_required","protected_file_must_be_0600",
             "protected_file_owner_mismatch","invalid_protected_pg_connection",
+            "protected_evidence_hash_mismatch","archive_original_mismatch",
+            "archive_identity_or_occurrence_mismatch","archive_attempt_not_open",
+            "postgresql_tls_verification_required","body_budget","unbounded_source_budget",
+            "wrong_staging_connection_target",
         }
         print(json.dumps({"result":"STOPPED",
                           "reason":code if code in allowed else "review_required"},
                          ensure_ascii=False))
+        return 2
+    except Exception as exc:
+        # Database exceptions may contain SQL details and protected row values.
+        psycopg = sys.modules.get("psycopg")
+        if psycopg is None or not isinstance(exc, psycopg.Error):
+            raise
+        print(json.dumps({"result":"STOPPED","reason":"postgresql_operation_failed",
+                          "sqlstate":exc.sqlstate}, sort_keys=True))
         return 2
 
 
